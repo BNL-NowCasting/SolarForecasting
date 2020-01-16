@@ -51,7 +51,7 @@ plt.ioff()  #Turn off interactive plotting for running automatically
 MAE, MSE = [], []
 MAE2, MSE2 = [], []
 for forward in lead_minutes:
-    timestamp, DataX, DataY, sensor_list = [], [], [], []
+    timestamp, DataX, DataY = [], [], []
     for sensor in sensors:
         x = np.genfromtxt(inpath+'GHI'+str(sensor)+'.csv',delimiter=',');
         x = x[x[:,0]==forward];
@@ -66,75 +66,73 @@ for forward in lead_minutes:
     #     DataY += [0.5*(y[itx + forward]+y[itx+1+forward])]
         DataY += [(y[itx + forward])]
         timestamp += [tx];
-        sensor_list += len([tx]) * [sensor]
+        #sensor_list += [sensor]
         
     # DataX_all = DataX
     # DataY_all = DataY
     # timestamp_all = timestamp
-    #    print("\t",len(DataX),len(DataY),len(timestamp),len(sensor_list))
+    # print("\t",len(DataX),len(DataY),len(timestamp),len(DataX[0]))
     
     # for sensor in range(len(DataX_all)):
         # DataX = DataX_all[sensor]
         # DataY = DataY_all[sensor]
         # timestamp = timestamp_all[sensor]
         #try:
-        DataX = np.vstack(DataX)
-        DataY = np.hstack(DataY)
-        timestamp = np.hstack(timestamp)
-        sensor = np.hstack(sensor_list)
-        
-        #print(timestamp, DataX, DataY)
-
-        mk = (DataY > 0) & (DataX[:,0] > 0)
-        DataX = DataX[mk]
-        DataX[:,0]/=400;
-        DataX[:,1:] = scale(DataX[:,1:]);  
-        # DataX[:,1:] = normalize(DataX[:,1:],axis=0);  
-        DataY = DataY[mk]
-        timestamp = timestamp[mk]
-        print("%i minute forecast" % forward)
-        print("\t",DataX.shape,DataY.shape,sensor.shape,timestamp.shape)
-        print('\tMean GHI:', np.nanmean(DataY))
-
-        with open('optimal_model{:02d}.mod99'.format(forward),'rb') as fmod:
-    #     with open('optimal_model{:02d}.md'.format(forward),'rb') as fmod:
-            SVR_linear = pickle.load(fmod)
-
-        testY_hat = SVR_linear.predict(DataX)
-    #     testY_hat = SVR_linear.predict(DataX[:,1:])*DataX[:,0]*400
-        testY_per = DataX[:,0]*400
-        #print(testY_hat)
-        # print(DataY)
-
-        ts_offset = datetime(2018,1,1) #fix offset
-        ts_offset.replace(tzinfo=timezone.utc)
-        ts_fixed = timestamp+ts_offset.timestamp()
-        txt_timestamp = np.asarray(ts_fixed, dtype='datetime64[s]')
-        md_timestamp = md.epoch2num(ts_fixed)
+    DataX = np.vstack(DataX)
+    DataY = np.hstack(DataY)
+    timestamp = np.hstack(timestamp)
+    #sensor = numpy.hstack(sensor_list)
     
-    #for sensor in range(len(DataX[:])):
-        print("\t",DataX.shape,DataY.shape,testY_hat.shape,ts_fixed.shape)
-        np.savetxt(forecast_path + "forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataX)), header="Timestamp,RawForecast",delimiter=",")
-        np.savetxt(forecast_path + "ML_forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataY, testY_hat)), header="Timestamp,Actual_GHI,Forecast_GHI",delimiter=",")
-        
-        
-        xfmt = md.DateFormatter('%H:%M', tz=pytz.timezone('US/Eastern'))
-        plt.figure();
-        ax=plt.gca()
-        ax.xaxis.set_major_formatter(xfmt)
-        #xlocator = md.MinuteLocator(byminute=[0], interval = 1)
-        xlocator = md.HourLocator(byhour=[0], interval = 1)
-        ax.xaxis.set_major_locator(xlocator)
-        plt.title("Actual vs. Forecast Irradiance",y=1.08, fontsize=16)
-        plt.xlabel('Hour (EST)');
-        plt.ylabel('Irradiance (W/m^2)'); 
-        plt.plot(md_timestamp,DataY, label='Actual GHI');
-        plt.plot(md_timestamp,testY_hat, label='Cloud-Tracking Forecast');
-        plt.plot(md_timestamp,testY_per, label='Persistence Forecast');
-        plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left', ncol=3, borderaxespad=0., fontsize="small");
-        plt.tight_layout()
-        plt.savefig(forecast_path + "plots/GHI_ActualvsForecast_" + str(forward) + ".png")
-        plt.close()
+    #print(timestamp, DataX, DataY)
+
+    mk = (DataY > 0) & (DataX[:,0] > 0)
+    DataX = DataX[mk]
+    DataX[:,0]/=400;
+    DataX[:,1:] = scale(DataX[:,1:]);  
+    # DataX[:,1:] = normalize(DataX[:,1:],axis=0);  
+    DataY = DataY[mk]
+    timestamp = timestamp[mk]
+    print("%i minute forecast, location %i" % (forward, sensor))
+    print("\t",DataX.shape,DataY.shape)
+    print('\tMean GHI:', np.nanmean(DataY))
+
+    with open('optimal_model{:02d}.mod99'.format(forward),'rb') as fmod:
+#     with open('optimal_model{:02d}.md'.format(forward),'rb') as fmod:
+        SVR_linear = pickle.load(fmod)
+
+    testY_hat = SVR_linear.predict(DataX)
+#     testY_hat = SVR_linear.predict(DataX[:,1:])*DataX[:,0]*400
+    testY_per = DataX[:,0]*400
+    #print(testY_hat)
+    # print(DataY)
+    
+
+    ts_offset = datetime(2018,1,1) #fix offset
+    ts_offset.replace(tzinfo=timezone.utc)
+    ts_fixed = timestamp+ts_offset.timestamp()
+    txt_timestamp = np.asarray(ts_fixed, dtype='datetime64[s]')
+    md_timestamp = md.epoch2num(ts_fixed)
+    
+    np.savetxt(forecast_path + "forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataX)), header="Timestamp,RawForecast",delimiter=",")
+    np.savetxt(forecast_path + "ML_forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataY, testY_hat)), header="Timestamp,Actual_GHI,Forecast_GHI",delimiter=",")
+    
+    
+    xfmt = md.DateFormatter('%H:%M', tz=pytz.timezone('US/Eastern'))
+    plt.figure();
+    ax=plt.gca()
+    ax.xaxis.set_major_formatter(xfmt)
+    #xlocator = md.MinuteLocator(byminute=[0], interval = 1)
+    #ax.xaxis.set_major_locator(xlocator)
+    plt.title("Actual vs. Forecast Irradiance",y=1.08, fontsize=16)
+    plt.xlabel('Hour (EST)');
+    plt.ylabel('Irradiance (W/m^2)'); 
+    plt.plot(md_timestamp,DataY, label='Actual GHI');
+    plt.plot(md_timestamp,testY_hat, label='Cloud-Tracking Forecast');
+    plt.plot(md_timestamp,testY_per, label='Persistence Forecast');
+    plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left', ncol=3, borderaxespad=0., fontsize="small");
+    plt.tight_layout()
+    plt.savefig(forecast_path + "plots/GHI_ActualvsForecast_"+ str(sensor) + "_" + str(forward) + ".png")
+    plt.close()
     #plt.show();
     #plt.figure(); plt.plot(testY_hat); plt.plot(DataY); plt.show();
     

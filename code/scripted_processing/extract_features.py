@@ -1,5 +1,5 @@
 import numpy as np
-import os,sys, glob
+import os, sys, glob, subprocess
 from matplotlib import pyplot as plt
 import pickle
 import stat_tools as st
@@ -30,7 +30,8 @@ def extract_MP(args):
         R_max1, G_max1, B_max1 = np.nanmax(rgb,axis=0);
         RBR1 = (R_mean1 - B_mean1) / (R_mean1 + B_mean1)
         cf1 = np.sum(img.cm[slc]) / np.sum(rgb[:,0]>0);
-       
+        
+        out_args = []
         for ilt, lead_time in enumerate(lead_steps):
             iy = int(0.5 + iy0 + img.v[0][0]*lead_time); 
             ix = int(0.5 + ix0 - img.v[0][1]*lead_time);   #####need to revert vx since the image is flipped
@@ -48,7 +49,9 @@ def extract_MP(args):
                         cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,\
                         cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2],dtype=np.float32) 
                 tmp=np.reshape(tmp,(1,-1));
-                np.savetxt(fhs[iGHI],tmp, fmt=', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))
+                out_args += [(iGHI,tmp,', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))]
+        return out_args
+
 #fig,ax=plt.subplots(1,2,sharex=True,sharey=True);
 #ax[0].imshow(img.rgb); ax[0].scatter(ix,iy,s=3,marker='o');
 #ax[1].imshow(img.cm); 
@@ -89,15 +92,22 @@ if __name__ == "__main__":
 
     #print(GHI_loc, len(GHI_loc))
 
-    fhs=[]
-    for iGHI in range(len(GHI_loc)):
-        fhs += [open(outpath+'GHI'+str(iGHI+1)+'.csv','wb')]
-        
-    print("Preparing to extract features for GHI sensors:\n\t%s" % ("\n\t").join(str(fhs).split(",")))
-
                      
 
     for day in days:
+        if not os.path.isdir(outpath+day):
+            try:
+                subprocess.call(['mkdir', outpath+day]) 
+            except:
+                print('Cannot create directory,',outpath+day)
+                continue
+    
+        fhs=[]
+        for iGHI in range(len(GHI_loc)):        
+            fhs += [open(outpath+day+'/GHI'+str(iGHI+1)+'.csv','wb')]
+            
+        print("Extracting features for %s, GHI sensors:\n\t%s" % (day, ("\n\t").join(str(fhs).split(","))))
+        
         p = multiprocessing.Pool(cores_to_use)  
         flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day+'*sth'))
         #flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day[:8]+'1511*sth'))
@@ -114,10 +124,14 @@ if __name__ == "__main__":
                 iys = (0.5 + (y + img.height*np.tan(img.sz)*np.cos(img.saz))/img.pixel_size).astype(np.int32)
                 ixs = (0.5 + (x - img.height*np.tan(img.sz)*np.sin(img.saz))/img.pixel_size).astype(np.int32)
                 
-                p.map(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp] for iGHI in range(len(GHI_loc))],chunksize=1)
+                features = p.map(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp] for iGHI in range(len(GHI_loc))])
+                for timesteps in features:
+                    if timesteps is not None:
+                        for args in timesteps:
+                            np.savetxt(fhs[args[0]], *args[1:])
                 
         p.close()
         p.join()      
 
-    for fh in fhs:
-        fh.close()       
+        for fh in fhs:
+            fh.close()       

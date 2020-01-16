@@ -23,40 +23,43 @@ deg2km=6367*np.pi/180
 def stitch(cams, dates):
     for day in dates:
         
-        try:
-            if day[8] == "[":
-                flist = []
-                hours = range(int(day[9:11]),abs(int(day[12:14]))+1)
-                for hour in hours:
-                    flist.extend(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day[:8]+str(hour)+'*jpg'))
-                flist = sorted(flist)
-            else:
-                flist= sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))
+        # try:
+            # if day[8] == "[":
+                # flist = []
+                # hours = range(int(day[9:11]),abs(int(day[12:14]))+1)
+                # for hour in hours:
+                    # flist.extend(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day[:8]+str(hour)+'*jpg'))
+                # flist = sorted(flist)
+            # else:
+                # flist= sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))
                 
-        except Exception as e:
-            print("Date/Time format time issue: %s" % e)
-            flist= sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))
+        # except Exception as e:
+            # print("Date/Time format time issue: %s" % e)
+        # flist= sorted(glob.glob(inpath+'*/'+day[:8]+'/*_'+day+'*jpg'))
         
-        print(flist)
+        # print(flist)
         
-        if len(flist)<=1:
-            continue
-        for f in flist[1:]:
-            ymdhms=f[-18:-4]
-            print('Processing',ymdhms)
-            if os.path.isfile(stitch_path+ymdhms+'.sth') and (~REPROCESS):  ######already processed, skip
+        # if len(flist)<=1:
+            # continue
+        # for f in flist[1:]:
+            # ymdhms=f[-18:-4]
+            print('Processing',day)
+            if os.path.isfile(stitch_path+day+'*.sth') and (~REPROCESS):  ######already processed, skip
                 print('(Skipped)')
                 continue
             
-            counter=0;
+            #counter=0;
             selected=[]; imgs=[]  
-            for counter in range(20):
-                pkls=sorted(glob.glob(tmpfs+day[:8]+'/HD*_'+ymdhms+'.hkl'));
+            for camID in all_cams:
+                if camID not in cid_flat or stitch_pair[camID] in selected:
+                    continue;
+                pkls=sorted(glob.glob(tmpfs+day+'/'+camID+'_'+day+'*.hkl'));
+                times = {}
+                
                 #print("pickles: %s" % str(pkls))
                 for pkl in pkls:
-                    camID=pkl[-23:-19]
-                    if camID not in cid_flat or camID in selected or stitch_pair[camID] in selected:
-                        continue;
+                    times.add(pkl[-18:-4])
+                    #camID=pkl[-23:-19]
                     with open(pkl,'rb') as input:
                         try:
                             img=pickle.load(input)
@@ -71,64 +74,66 @@ def stitch(cams, dates):
             if len(imgs)<=0:
                 continue
 #            print(selected)
+
+            for ymdhms in list(times):
             
-            h=[]; v=[]
-            for i, img in enumerate(imgs):
-                if np.isfinite(img.height):                
-                    h += [img.height]
-                if len(img.v)>=1:    
-                    v += [img.v]
-            if len(h)<=0 or len(v)<=0:  ####clear sky
-                h=[15]; 
-                v=[[0,0]];
-            else:
-                h=np.array(h)/1e3; v=np.array(v)
-                h=np.nanmedian(h,axis=0); v=np.nanmedian(v,axis=0);
-            
-            max_tan=np.tan(imgs[0].max_theta*np.pi/180) 
-            for ilayer,height in enumerate(h):
-                h[ilayer]=0.675; height=0.675
-                if np.isnan(h[ilayer]): continue
-                stch=cam.stitch(ymdhms); 
-                stch.sz,stch.saz=imgs[0].sz,imgs[0].saz
-                stch.height=height; stch.v=v
-                
-                pixel_size=2*h[ilayer]*max_tan/imgs[0].nx; 
-                stch.pixel_size=pixel_size;
-                xlen,ylen=2*h[ilayer]*max_tan+x_cams, 2*h[ilayer]*max_tan+y_cams
-                nstch_y,nstch_x=int(ylen//pixel_size),int(xlen//pixel_size)
-                stch.lon=lon0-h[ilayer]*max_tan/deg2km/np.cos(cameras['HD3A'].lat*np.pi/180); 
-                stch.lat=lat0+h[ilayer]*max_tan/deg2km;
-#                 print(pixel_size,xlen,ylen)
-                rgb=np.zeros((nstch_y,nstch_x,3),dtype=np.float32)
-                cnt=np.zeros((nstch_y,nstch_x),dtype=np.uint8);
-                cm=np.zeros((nstch_y,nstch_x),dtype=np.float32)              
+                h=[]; v=[]
                 for i, img in enumerate(imgs):
-                    start_x=(img.lon-lon0)*deg2km*np.cos(img.lat*np.pi/180)/pixel_size; start_x=int(start_x)
-                    start_y=(lat0-img.lat)*deg2km/pixel_size; start_y=int(start_y)
-                    
-                    tmp=np.flip(img.rgb,axis=1); #tmp[img.cm!=ilayer+1,:]=0;                    
-                    mk=tmp[...,0]>0
-#                     print(img.camID,ilayer,h[ilayer],start_x,start_y,mk.shape,stitched.shape)
-                    rgb[start_y:start_y+img.ny,start_x:start_x+img.nx][mk]+=tmp[mk]
-                    cnt[start_y:start_y+img.ny,start_x:start_x+img.nx]+=mk
-                    
-                    if (img.cm is not None):
-                        tmp=np.flip(img.cm,axis=1); #tmp[img.cm!=ilayer+1,:]=0;                    
-                        cm[start_y:start_y+img.ny,start_x:start_x+img.nx][mk]+=tmp[mk]                
-                                    
-                for i in range(3):
-                    rgb[...,i]/=cnt
-                cm/=cnt
-#                 fig,ax=plt.subplots(1,2); ax[0].imshow(cnt); ax[1].imshow(rgb.astype(np.uint8)); plt.show() 
-                stch.rgb=rgb.astype(np.uint8); stch.cm=(cm+0.5).astype(np.uint8)
-                stch.dump_stitch(stitch_path+'/'+day[:8]+'/'+ymdhms+'.sth');
+                    if np.isfinite(img.height):                
+                        h += [img.height]
+                    if len(img.v)>=1:    
+                        v += [img.v]
+                if len(h)<=0 or len(v)<=0:  ####clear sky
+                    h=[15]; 
+                    v=[[0,0]];
+                else:
+                    h=np.array(h)/1e3; v=np.array(v)
+                    h=np.nanmedian(h,axis=0); v=np.nanmedian(v,axis=0);
                 
-                plt.figure(); plt.imshow(stch.rgb,extent=[0,xlen,ylen,0]);
-                plt.xlabel('East distance, km'); plt.ylabel('South distance, km')
-                plt.tight_layout();
-#                plt.show();
-                plt.savefig(stitch_path+ymdhms); plt.close(); 
+                max_tan=np.tan(imgs[0].max_theta*np.pi/180) 
+                for ilayer,height in enumerate(h):
+                    h[ilayer]=0.675; height=0.675
+                    if np.isnan(h[ilayer]): continue
+                    stch=cam.stitch(ymdhms); 
+                    stch.sz,stch.saz=imgs[0].sz,imgs[0].saz
+                    stch.height=height; stch.v=v
+                    
+                    pixel_size=2*h[ilayer]*max_tan/imgs[0].nx; 
+                    stch.pixel_size=pixel_size;
+                    xlen,ylen=2*h[ilayer]*max_tan+x_cams, 2*h[ilayer]*max_tan+y_cams
+                    nstch_y,nstch_x=int(ylen//pixel_size),int(xlen//pixel_size)
+                    stch.lon=lon0-h[ilayer]*max_tan/deg2km/np.cos(cameras['HD3A'].lat*np.pi/180); 
+                    stch.lat=lat0+h[ilayer]*max_tan/deg2km;
+    #                 print(pixel_size,xlen,ylen)
+                    rgb=np.zeros((nstch_y,nstch_x,3),dtype=np.float32)
+                    cnt=np.zeros((nstch_y,nstch_x),dtype=np.uint8);
+                    cm=np.zeros((nstch_y,nstch_x),dtype=np.float32)              
+                    for i, img in enumerate(imgs):
+                        start_x=(img.lon-lon0)*deg2km*np.cos(img.lat*np.pi/180)/pixel_size; start_x=int(start_x)
+                        start_y=(lat0-img.lat)*deg2km/pixel_size; start_y=int(start_y)
+                        
+                        tmp=np.flip(img.rgb,axis=1); #tmp[img.cm!=ilayer+1,:]=0;                    
+                        mk=tmp[...,0]>0
+    #                     print(img.camID,ilayer,h[ilayer],start_x,start_y,mk.shape,stitched.shape)
+                        rgb[start_y:start_y+img.ny,start_x:start_x+img.nx][mk]+=tmp[mk]
+                        cnt[start_y:start_y+img.ny,start_x:start_x+img.nx]+=mk
+                        
+                        if (img.cm is not None):
+                            tmp=np.flip(img.cm,axis=1); #tmp[img.cm!=ilayer+1,:]=0;                    
+                            cm[start_y:start_y+img.ny,start_x:start_x+img.nx][mk]+=tmp[mk]                
+                                        
+                    for i in range(3):
+                        rgb[...,i]/=cnt
+                    cm/=cnt
+    #                 fig,ax=plt.subplots(1,2); ax[0].imshow(cnt); ax[1].imshow(rgb.astype(np.uint8)); plt.show() 
+                    stch.rgb=rgb.astype(np.uint8); stch.cm=(cm+0.5).astype(np.uint8)
+                    stch.dump_stitch(stitch_path+'/'+day[:8]+'/'+ymdhms+'.sth');
+                    
+                    plt.figure(); plt.imshow(stch.rgb,extent=[0,xlen,ylen,0]);
+                    plt.xlabel('East distance, km'); plt.ylabel('South distance, km')
+                    plt.tight_layout();
+    #                plt.show();
+                    plt.savefig(stitch_path+ymdhms+'.png'); plt.close(); 
 
 
 def height(args):
@@ -264,6 +269,7 @@ if __name__ == "__main__":
     y_cams=(lat0-cameras['HD1B'].lat)*deg2km  
 
     
+    print("DAYS: %s" % days)
     for day in days:
         if not os.path.isdir(stitch_path+day[:8]):
             try:
@@ -272,12 +278,7 @@ if __name__ == "__main__":
                 print('Cannot create directory,',stitch_path+day[:8])
                 continue 
                 
-    print("DAYS: %s" % days)
-    p0=multiprocessing.Process(target=stitch, args=(camIDs, days,))
-    p0.start(); 
-
     p = multiprocessing.Pool(len(camIDs)) 
- 
     for day in days:
         if not os.path.isdir(tmpfs+day[:8]):
             try:
@@ -288,7 +289,10 @@ if __name__ == "__main__":
 #         args=[[[camID for camID in camg], day] for camg in camIDs]      
         args=[[cameras[camID], [cameras[cmr] for cmr in height_group[camID]], day] for camID in cid_flat]                   
         p.map(height,args)  
-            
+        
+    p0=multiprocessing.Process(target=stitch, args=(camIDs, days,))
+    p0.start(); 
+
     p0.join(); 
             
 
