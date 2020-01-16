@@ -10,6 +10,8 @@ import multiprocessing,subprocess,pickle
 import time, geo
 from functools import reduce
 from operator import concat
+import configparser
+from ast import literal_eval as le
 
 SAVE_FIG=True
 REPROCESS=True; #False  ####reprocess already processed file?
@@ -17,65 +19,40 @@ MAX_INTERVAL = 179 ####max allowed interval between two frames for cloud motion 
 deg2km=6367*np.pi/180
 
 
-all_cams=['HD5A', 'HD5B', 'HD4A','HD4B', 'HD3A', 'HD3B','HD2B', 'HD2C', 'HD1B',  'HD1C'];
-height_group={'HD1B':['HD1C', 'HD2B'], 'HD1C':['HD1B', 'HD2C'], 'HD2B':['HD2C', 'HD3A'], 'HD2C':['HD2B', 'HD3B'],\
-       'HD3A':['HD3B','HD4A'], 'HD3B':['HD3A', 'HD4B'], 'HD4A':['HD4B','HD5A'], 'HD4B':['HD4A', 'HD5A', 'HD3B'],\
-       'HD5A':['HD5B', 'HD4A', 'HD4B'], 'HD5B':['HD5A', 'HD4B']}
-stitch_pair={'HD1B':'HD1C', 'HD1C':'HD1B','HD2B':'HD2C','HD2C':'HD2B','HD3A':'HD3B','HD3B':'HD3A', 'HD4A':'HD4B','HD4B':'HD4A', 'HD5A':'HD5B','HD5B':'HD5A'}
-# camIDs=[['HD1B','HD1C'],['HD2B','HD2C'],['HD3A','HD3B'],['HD4A','HD4B'],['HD5A','HD5B']];
-camIDs=['HD1B','HD2B','HD3A','HD4A','HD5A'];
-cid_flat=camIDs+[stitch_pair[camID] for camID in camIDs]
 
-# days=['20180823124','20180829165'];
-# # days=['20180825161']; ####multilayer cloud
-# days=['20180829165']
-# days=['20180829162']    #####scattered cloud
-# days=['20181001141']    #####scattered cloud
-# days=['20180922150']    ####high clouds
-
-days=['201809021[3-9]','201809031[3-5]','201809051[5-7]','201809111[7-8]','201809151[4-6]','201809161[6-8]','201809171[4-6]'\
-      ,'201809191[6-9]','201809192[0-1]','201809201[5-6]','201809221[4-9]','201810011[3-7]','201810021[7-9]'\
-      ,'2018100220','2018100320','201810031[3-9]','201810041[3-6]','201810051[3-5]']
-
-# days=['201809151[4-6]','201809171[4-6]','2018100220','2018100320']
-
-# days=['201809{:02d}15'.format(iday) for iday in range(1,9)]
-# days=['201809151[3,7,8,9]','2018091520','2018092213','2018092220'] 
-days=['201809{:02d}1[3-9]'.format(iday) for iday in range(1,31)]
-days=['20181001141']    #####scattered cloud
-
-
-inpath='~/data/images/' 
-# tmpfs='/dev/shm/'
-tmpfs='~/ldata/tmp/'
-stitch_path='~/ldata/stitch/'
-
-
-cameras={};
-for camID in all_cams:
-    cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000) 
-
-lon0,lat0=cameras['HD5A'].lon,cameras['HD5B'].lat
-x_cams=(cameras['HD1B'].lon-lon0)*deg2km*np.cos(cameras['HD1B'].lat*np.pi/180)
-y_cams=(lat0-cameras['HD1B'].lat)*deg2km  
-
-      
-def stitch(cams, dates):        
-    for day in dates:                       
-        flist = sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))        
-            
+def stitch(cams, dates):
+    for day in dates:
+        
+        try:
+            if day[8] == "[":
+                flist = []
+                hours = range(int(day[9:11]),abs(int(day[12:14]))+1)
+                for hour in hours:
+                    flist.extend(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day[:8]+str(hour)+'*jpg'))
+                flist = sorted(flist)
+            else:
+                flist= sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))
+                
+        except Exception as e:
+            print("Date/Time format time issue: %s" % e)
+            flist= sorted(glob.glob(inpath+camIDs[0]+'/'+day[:8]+'/'+camIDs[0]+'_'+day+'*jpg'))
+        
+        print(flist)
+        
         if len(flist)<=1:
             continue
         for f in flist[1:]:
             ymdhms=f[-18:-4]
             print('Processing',ymdhms)
             if os.path.isfile(stitch_path+ymdhms+'.sth') and (~REPROCESS):  ######already processed, skip
+                print('(Skipped)')
                 continue
             
             counter=0;
             selected=[]; imgs=[]  
             for counter in range(20):
                 pkls=sorted(glob.glob(tmpfs+day[:8]+'/HD*_'+ymdhms+'.hkl'));
+                #print("pickles: %s" % str(pkls))
                 for pkl in pkls:
                     camID=pkl[-23:-19]
                     if camID not in cid_flat or camID in selected or stitch_pair[camID] in selected:
@@ -90,10 +67,10 @@ def stitch(cams, dates):
                             selected += [camID]                                                                      
                 if len(selected)>=len(camIDs)-2:
                     break;
-                time.sleep(5); 
+                #time.sleep(5); 
             if len(imgs)<=0:
                 continue
-#             print(selected)
+#            print(selected)
             
             h=[]; v=[]
             for i, img in enumerate(imgs):
@@ -147,11 +124,11 @@ def stitch(cams, dates):
                 stch.rgb=rgb.astype(np.uint8); stch.cm=(cm+0.5).astype(np.uint8)
                 stch.dump_stitch(stitch_path+'/'+day[:8]+'/'+ymdhms+'.sth');
                 
-#                 plt.figure(); plt.imshow(stch.rgb,extent=[0,xlen,ylen,0]);
-#                 plt.xlabel('East distance, km'); plt.ylabel('South distance, km')
-#                 plt.tight_layout();
-#                 plt.show();
-# #             fig.savefig(outpath+ymdhms); plt.close(); 
+                plt.figure(); plt.imshow(stch.rgb,extent=[0,xlen,ylen,0]);
+                plt.xlabel('East distance, km'); plt.ylabel('South distance, km')
+                plt.tight_layout();
+#                plt.show();
+                plt.savefig(stitch_path+ymdhms); plt.close(); 
 
 
 def height(args):
@@ -231,14 +208,71 @@ def height(args):
         img.dump_img(tmpfs+f[-18:-10]+'/'+f[-23:-4]+'.hkl');
 
 
-if __name__ == "__main__":  
+if __name__ == "__main__":
+
+    try:
+        try:
+            config_path = sys.argv[1]
+        except Exception:
+            config_path = "./config.conf"
+        cp = configparser.ConfigParser()
+        cp.read(config_path)
+
+
+        all_cams=le(cp["cameras"]["all_cams"])
+        height_group=le(cp["cameras"]["height_group"])
+        stitch_pair=le(cp["cameras"]["stitch_pair"])
+        camIDs=le(cp["cameras"]["camIDs"])
+        cid_flat=camIDs+[stitch_pair[camID] for camID in camIDs]
+
+        # days=['20180823124','20180829165'];
+        # # days=['20180825161']; ####multilayer cloud
+        # days=['20180829165']
+        # days=['20180829162']    #####scattered cloud
+        # days=['20181001141']    #####scattered cloud
+        # days=['20180922150']    ####high clouds
+
+        #days=['201809021[3-9]','201809031[3-5]','201809051[5-7]','201809111[7-8]','201809151[4-6]','201809161[6-8]','201809171[4-6]'\
+        #      ,'201809191[6-9]','201809192[0-1]','201809201[5-6]','201809221[4-9]','201810011[3-7]','201810021[7-9]'\
+        #      ,'2018100220','2018100320','201810031[3-9]','201810041[3-6]','201810051[3-5]']
+
+        # days=['201809151[4-6]','201809171[4-6]','2018100220','2018100320']
+
+        # days=['201809{:02d}15'.format(iday) for iday in range(1,9)]
+        # days=['201809151[3,7,8,9]','2018091520','2018092213','2018092220'] 
+        #days=['201809{:02d}1[3-9]'.format(iday) for iday in range(1,31)]
+        #days=['20181001141']    #####scattered cloud
+        #days=['2019102816']  #2019-10-28 4PM
+        days=le(cp["forecast"]["days"])
+
+        inpath=le(cp["paths"]["inpath"])
+        # tmpfs='/dev/shm/'
+        tmpfs=le(cp["paths"]["tmpfs"])
+        stitch_path=le(cp["paths"]["stitch_path"])
+
+    except KeyError as e:
+        print("Error loading config: %s" % e)
+        
+    plt.ioff()  #Turn off interactive plotting for running automatically
+
+    cameras={};
+    for camID in all_cams:
+        cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000) 
+
+    lon0,lat0=cameras['HD5A'].lon,cameras['HD5B'].lat
+    x_cams=(cameras['HD1B'].lon-lon0)*deg2km*np.cos(cameras['HD1B'].lat*np.pi/180)
+    y_cams=(lat0-cameras['HD1B'].lat)*deg2km  
+
+    
     for day in days:
         if not os.path.isdir(stitch_path+day[:8]):
             try:
                 subprocess.call(['mkdir', stitch_path+day[:8]]) 
             except:
                 print('Cannot create directory,',stitch_path+day[:8])
-                continue  
+                continue 
+                
+    print("DAYS: %s" % days)
     p0=multiprocessing.Process(target=stitch, args=(camIDs, days,))
     p0.start(); 
 

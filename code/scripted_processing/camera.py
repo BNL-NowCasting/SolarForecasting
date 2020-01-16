@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import stat_tools as st
-from datetime import datetime,timedelta
+from datetime import datetime,timedelta,timezone
 import os,ephem
 from skimage.morphology import remove_small_objects
 from scipy.ndimage import morphology,sobel
@@ -17,7 +17,7 @@ BND_WIN = 20;
 BND_RED_THRESH, BND_RBR_THRESH  = 2/1.5, 0.012/2
 DRED_THRESH, DRBR_THRESH = 150, 157
 STD_RED_THRESH, STD_RBR_THRESH = 1.2, 0.012
-static_mask_path='~/ldata/masks/'  
+static_mask_path='/home/dhuang3/ldata/masks/'  
 
 coordinate = {'HD2C':[40.87203321,-72.87348295],'HD815_2':[40.87189059,-72.873687],\
                'HD490':[40.865968816,-72.884647222], 'HD1B':[40.8575056,-72.8547344], \
@@ -134,7 +134,7 @@ class image:
         self.camID=cam.camID
         self.nx,self.ny=cam.nx,cam.ny
         self.lon, self.lat, self.max_theta = cam.lon, cam.lat, cam.max_theta
-        self.time=None
+        self.t_local=None
         self.fn=fn
         self.layers=0
         self.v=[]
@@ -157,9 +157,10 @@ class image:
         Output: rgb, red, rbr, cos_g will be specified.
         """           
         #####get the image acquisition time, this need to be adjusted whenever the naming convention changes 
-        self.time=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');     
+        t_local=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
+        t_std = t_local.replace(tzinfo=timezone(-timedelta(hours=5)))       
         gatech = ephem.Observer(); 
-        gatech.date = self.time.strftime('%Y/%m/%d %H:%M:%S')
+        gatech.date = t_std.strftime('%Y/%m/%d %H:%M:%S')
         gatech.lat, gatech.lon = str(self.lat),str(self.lon)
         sun=ephem.Sun()  ; sun.compute(gatech);        
         sz = np.pi/2-sun.alt; 
@@ -515,10 +516,11 @@ def preprocess(camera,fn,outpath):
 class stitch:
     ###image class
     def __init__(self, time):        
-        self.time=time
+        t_local=time
         self.rgb=None
         self.cm=None
 
     def dump_stitch(self,filename):
         with open(filename, 'wb') as output:  # Overwrites any existing file.
             pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
+        print("writing: %s" % filename)
