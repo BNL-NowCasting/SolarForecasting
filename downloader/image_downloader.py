@@ -104,7 +104,7 @@ if __name__ == "__main__":
     lat = site_config['geolocation']['lat']
     lon = site_config['geolocation']['lon']
 
-    site_paths = config['paths'][site]
+    site_paths = cp['paths'][site]
     cachepath = site_paths['cache_path']
     latest = site_paths['latest_path']
     imagepath = site_paths['img_path']
