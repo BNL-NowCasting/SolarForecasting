@@ -118,7 +118,7 @@ def count_folders( time_str, file_lists, use_cache=False ):
 		# filter file list for images created during the target hour
 		file_list = [
 		    f for f in file_lists[i]
-		    if f[-18:-8] == time_str 
+		    if f[-18:-8] == time_str # fragile
 		    and os.path.isfile( full_path( folder, f, use_cache ) ) 
 		]
 
@@ -163,7 +163,9 @@ while True:
 				counts = counts[0:last_counts]
 				
 				if not use_cache:
+					# reload our files list from the cache
 					use_cache = True
+					last_day = None
 					continue
 				break
 			
@@ -190,14 +192,19 @@ while True:
 			counts.loc[len(counts.index)] = count
 
 			if count[0]:
+				if next_t - last_success > timedelta(hours=1):
+					logger.log( 
+					    "Data missing starting after " +
+					    last_success.strftime( "%Y-%m-%d %H:%M" )
+					)
+					logger.log( 
+					    "Data resumes starting at " +
+					    next_t.strftime( "%Y-%m-%d %H:%M" )
+					)	
+
 				last_success = next_t
 				last_counts = counts.index[-1]
-			else:
-				counts.loc[counts.index[-1]][0] = next_update_str
-				logger.log( 
-				    "Unable to find data for time " + 
-				    next_t.strftime( "%Y-%m-%d %H:%M" )
-				)
+			counts.loc[counts.index[-1]][0] = next_update_str
 
 			next_t += timedelta( hours=1 )
 
