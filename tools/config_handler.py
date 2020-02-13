@@ -13,7 +13,7 @@ import yaml
 #	make interactive editor less ridiculous
 
 # Configuration file to use if a value isn't passed
-CONF_F = "/home/tchapman/root/bin/config.yaml"
+CONF_F = "/home/tchapman/root/configs/config.yaml"
 
 ### Interactive editor parameters
 argument_separator = " " # currently relevant only for 'set' 1/28/20
