@@ -95,16 +95,16 @@ if __name__ == "__main__":
                      
 
     for day in days:
-        if not os.path.isdir(outpath+day):
+        if not os.path.isdir(outpath+day[:8]):
             try:
-                subprocess.call(['mkdir', outpath+day]) 
+                subprocess.call(['mkdir', outpath+day[:8]]) 
             except:
-                print('Cannot create directory,',outpath+day)
+                print('Cannot create directory,',outpath+day[:8])
                 continue
     
         fhs=[]
         for iGHI in range(len(GHI_loc)):        
-            fhs += [open(outpath+day+'/GHI'+str(iGHI+1)+'.csv','wb')]
+            fhs += [open(outpath+day[:8]+'/GHI'+str(iGHI+1)+'.csv','wb')]
             
         print("Extracting features for %s, GHI sensors:\n\t%s" % (day, ("\n\t").join(str(fhs).split(","))))
         

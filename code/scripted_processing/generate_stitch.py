@@ -19,7 +19,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 SAVE_FIG=True
-REPROCESS=True; #False  ####reprocess already processed file?
+REPROCESS=False; #False  ####reprocess already processed file?
 MAX_INTERVAL = 179 ####max allowed interval between two frames for cloud motion estimation
 deg2km=6367*np.pi/180
 
@@ -39,7 +39,7 @@ def stitch(cams, dates, cores_to_use):
             if camID not in cid_flat or stitch_pair[camID] in selected:
                 continue;
             selected += camID
-            pkls=sorted(glob.glob(tmpfs+day+'/'+camID+'_'+day+'*.hkl'));
+            pkls=sorted(glob.glob(tmpfs+day[:8]+'/'+camID+'_'+day+'*.hkl'));
             print("\t%s: %i hkl files found" % (camID, len(pkls)))
             for pkl in pkls:
                 try:
@@ -87,7 +87,7 @@ def stitch_MP(args):
     
     max_tan=np.tan(imgs[0].max_theta*np.pi/180) 
     for ilayer,height in enumerate(h):
-        h[ilayer]=0.675; height=0.675
+        #h[ilayer]=0.675; height=0.675
         if np.isnan(h[ilayer]): continue
         stch=cam.stitch(ymdhms); 
         stch.sz,stch.saz=imgs[0].sz,imgs[0].saz
@@ -235,17 +235,18 @@ def height_MP(mp_args):
                 res=cam.cloud_height(img,img1,layer=ih+1, distance=distance)
                 if np.isfinite(res) and res<20*distance and res>0.5*distance:
                     h[ih]=int(res);
-#                     print('Cloud height computed for', f[-23:]);
-#                     print('Cloud layer',ih+1,':',res,' computed with cameras ',img.camID,img1.camID,'(distance:',distance,'m)')
-                    if not SAVE_FIG:
-                        fig,ax=plt.subplots(2,2,figsize=(10,10),sharex=True,sharey=True);
-                        ax[0,0].imshow(img.rgb); ax[0,1].imshow(img1.rgb); 
-                        ax[0,0].set_title(img.camID); ax[0,1].set_title(img1.camID)
-                        ax[1,0].imshow(img.cm); ax[1,1].imshow(img1.cm); 
-                        ax[1,0].set_title(str(6367e3*geo.distance_sphere(img.lat,img.lon,img1.lat,img1.lon)))  
-                        plt.tight_layout(); 
-                        plt.show();                     
-            
+                    print('Cloud height computed for', f[-23:]);
+                    print('Cloud layer',ih+1,':',res,' computed with cameras ',img.camID,img1.camID,'(distance:',distance,'m)')
+
+                    #if not SAVE_FIG:
+                    fig,ax=plt.subplots(2,2,figsize=(10,10),sharex=True,sharey=True);
+                    ax[0,0].imshow(img.rgb); ax[0,1].imshow(img1.rgb); 
+                    ax[0,0].set_title(img.camID); ax[0,1].set_title(img1.camID)
+                    ax[1,0].imshow(img.cm); ax[1,1].imshow(img1.cm); 
+                    ax[1,0].set_title(str(6367e3*geo.distance_sphere(img.lat,img.lon,img1.lat,img1.lon)))  
+                    plt.tight_layout(); 
+                    plt.show();                     
+        
             if np.isfinite(h[-1]):                
                 break                               
 #             img.height+=[h];
