@@ -12,10 +12,12 @@ class Logger:
         # script_name: indentifying name to prefix the log file
         # config: the configuration object being used for the current run of
 	#         whatever it is that we're logging
-	def __init__(self, script_name, config):
+	def __init__(self, script_name, config, echo=False):
 		self.name = script_name
 		self.last_year = datetime.now().year
 		self.target_file = ""
+
+		self.echo = echo # print logged messages to stdout?
 
 		site = config["site_id"]
 		self.log_root = config["paths"][site]["logging_path"]
@@ -28,6 +30,9 @@ class Logger:
 		) )
 
 	def log( self, msg ):
+		if self.echo:
+			print( msg )
+
 		t = datetime.now()
 		year = t.year
 		if year != self.last_year:
@@ -41,6 +46,12 @@ class Logger:
 		msg = "{}: {}\n".format(t, msg.rstrip())
 		with open(self.target_file, "a") as f:
 			f.write(msg)
+
 	def log_exception( self, msg="" ):
-		msg = "Caught Exception: {}\n".format( msg ) + traceback.format_exc()
+		msg = "Caught Exception: {} {}\n".format( 
+		    msg, traceback.format_exc()
+		)
+		if self.echo:
+			print( msg )
+
 		self.log( msg )

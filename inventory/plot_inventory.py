@@ -11,48 +11,51 @@ import traceback
 try:
     from config_handler import handle_config
     from logger import Logger
+    import utils
 except:
-    print( "Failed to import config_handler or logger\n" + 
+    print( "Failed to import config_handler, logger, or utils\n" + 
            "They are located in ../tools/\n" )
     print( traceback.format_exc() )
     exit(1)
 
-cp = handle_config( metadata={"invoking_script":"plot_inventory"}, header="inventory" )
+cp = handle_config(
+    metadata={"invoking_script":"plot_inventory"}, 
+    header="inventory"
+)
 logger = Logger( "plot_inventory", cp )
 
 SITE = cp["site_id"]
+
 # slightly shift plotted y values so you can zoom in
 # and see all the cameras at a given point
 JITTER_STR = cp["inventory"]["plot"]["jitter"]
 ALPHA = cp["inventory"]["plot"]["alpha"] # low alpha looks bad but has its uses
-CAMERAS = cp["cameras"][SITE]["cameras"]
-NUM_CAMERAS = len(CAMERAS)
-ROOT = cp["paths"][SITE]["inventory_path"]
-SAVE_LOC = ROOT + "inventory_plot.png" # unused
 COLORS = cp["inventory"]["plot"]["plot_colors"]
 SIZE = cp["inventory"]["plot"]["plot_size"]
 
+CAMERAS = cp["cameras"][SITE]["cameras"]
+NUM_CAMERAS = len(CAMERAS)
+
+ROOT = cp["paths"][SITE]["inventory_path"]
+SAVE_LOC = ROOT + "inventory_plot.png" # unused
+
 if "start_date" in cp["inventory"] and cp["inventory"]["start_date"]:
-    start_time = cp["inventory"]["start_date"]
+    start_time = cp["inventory"]["start_date"]    
 else:
     start_time = datetime.now().year
+start_date = utils.date_from_timestamp( start_time )
+
 if "end_date" in cp["inventory"] and cp["inventory"]["end_date"]:
     end_time = cp["inventory"]["end_date"]
+    end_date = utils.date_from_timestamp( end_time )
 else:
-    end_time = datetime.now().strftime( "%Y%m%d%H" )
+    end_date = datetime.now()
 
-default_s_time = "0000010100"
-# default_e_time = "0000123123"
-start_time = str(start_time) + default_s_time[len(str(start_time)):]
-end_time = str(end_time) + default_s_time[len(str(end_time)):]
-
-start_date = datetime.strptime( start_time, "%Y%m%d%H" )
-end_date = datetime.strptime( end_time, "%Y%m%d%H" )
 
 # hide some cameras?
 mask = [True]*NUM_CAMERAS
 if "cameras_to_show" in cp["inventory"]["plot"] and cp["inventory"]["plot"]["cameras_to_show"]:
-    mask = [i in cp["inventory"]["plot"]["cameras_to_show"] for i in range(1, NUM_CAMERAS+1)]
+    mask = [(i+1) in cp["inventory"]["plot"]["cameras_to_show"] for i in range(NUM_CAMERAS)]
 
 # slightly offset elements of arr because all the points
 # in my scatter plot are directly on top of one another
@@ -71,22 +74,31 @@ for y in years:
     inventory_name = "{}inventory_{}.csv".format(ROOT, y)
     if not os.path.exists( inventory_name ):
         print( "Warning: invalid inventory file " + inventory_name )
-        logger.log( "Warning: attempted to read invalid inventory file " + inventory_name )
+        logger.log(
+          "Warning: attempted to read invalid inventory file " + inventory_name
+        )
         continue
+
     inventory_files.append( inventory_name )
+
 if not len(inventory_files):
-    print( "Error: no valid inventory files found in [{}]".format( ", ".join([str(y) for y in years]) ) )
-    logger.log( "Error: no valid inventory files found in [{}]".format( ", ".join([str(y) for y in years]) ) )
+    print( "Error: no valid inventory files found in {}".format( 
+      [str(y) for y in years]
+    ) )
+    logger.log( "Error: no valid inventory files found in {}".format( 
+      [str(y) for y in years]
+    ) )
     exit(1)
 
 counts = pd.DataFrame()
 for name in inventory_files:
     counts = pd.concat( [counts, pd.read_csv(name)], ignore_index=True )
 
-# are string timestamps have the same ordering as actual times
+# our string timestamps have the same ordering as actual times
 counts = counts[counts.hour > min_hour]
 counts = counts[counts.hour < max_hour]
 counts = counts.reset_index(drop=True)
+
 first_hour = str(int(counts['hour'][0]))
 last_hour = str(int(counts['hour'][counts.index[-1]]))
 
@@ -126,9 +138,12 @@ for k,v in formatter.scaled.items():
 ax.xaxis.set_major_formatter( formatter ) 
 ### end
 
-for i, cam in enumerate(data):
+for i, cam_counts in enumerate(data):
 	if mask[i]:
-		ax.scatter( xs, basic_jitter(cam), c=COLORS[i], edgecolors=COLORS[i],  s=float(SIZE), alpha=ALPHA )
+		ax.scatter( 
+		    xs, basic_jitter(cam_counts), c=COLORS[i], 
+		    edgecolors=COLORS[i],  s=float(SIZE), alpha=ALPHA
+		)
 
 plt.title( "Number of images created by each camera per hour" )
 plt.xlabel( "Date" )

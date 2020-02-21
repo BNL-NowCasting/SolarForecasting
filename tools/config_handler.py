@@ -105,7 +105,6 @@ def load_config(f):
         out_config[str(key)] = value
     return out_config
 
-# find and load config
 def find_and_load_config( conf_name, main_config_f ):
     return find_and_load_configs( [conf_name], main_config_f )
 
@@ -133,7 +132,9 @@ def find_and_load_configs( conf_names, main_config_f ):
                     configs[conf_name] = generated_config[conf_name]
 
     if len(configs.keys()) < len(conf_names):
-        pass
+        diff = list( set(conf_names) - set(configs.keys()) )
+        conf_names = list(configs.keys())
+        logger.log( "Error: failed to find configs " + str(diff) )
 
     for name in conf_names:
         # modifies conf in-place
@@ -171,7 +172,7 @@ def save_config( config, config_fn, name="", metadata={} ):
     # store metadata dictionary with the new configuration
     config["metadata"] = {
         "timestamp": datetime.now(),
-	"key": key,
+         "key": key,
         "name": name
     }
     # add any metadata provided by the invoking script
@@ -463,7 +464,7 @@ def handle_config(default_config_name="", metadata={}, parser=None, header=""):
         # just load the given configurations and return their union
         conf = find_and_load_configs( loaded_conf_names, config_f )
 
-	# for logging purposes:
+        # for logging purposes:
         if not "metadata" in conf:
             conf["metadata"] = {}
         conf["metadata"]["name"] = loaded_conf_names # for logging

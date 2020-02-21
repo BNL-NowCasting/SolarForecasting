@@ -25,8 +25,7 @@ def call_repeatedly(intv, func, *args):
     stopped = Event()
     def loop():
         i = 0
-        while not stopped.wait(intv): # the first call is in `intv` secs
-            # print("Invoking {} for the {}th time".format(func.__name__, i))
+        while not stopped.wait(intv):
             func(*args)
             i += 1
     Thread(target=loop).start()    
@@ -36,7 +35,7 @@ def call_repeatedly(intv, func, *args):
 def flush_files(cams):
     for camera in cams:
         fns = glob.glob(cachepath+camera+'/*jpg')
-        # print(camera,len(fns))
+
         for fn in fns:
             doy = fn[-18:-10]
             dest = "{}{}/{}".format( imagepath, camera, doy )
@@ -68,22 +67,19 @@ def makeRequest(cam):
     req.install_opener(opener)
 
     fn = cachepath + cam + "/{}_{}.jpg".format( cam, timestamp )
+    fn_latest = latest + cam + '_latest.jpg'
+
     if SAFE_MODE:
         print( "Would retrieve {} to {}".format( urls[cam]+url_suffix, fn ) )
-    else:
-        # print("Attempting retrieve {} to {}".format(urls[cam]+url_suffix, fn))
-        req.urlretrieve( urls[cam] + url_suffix, fn )
-        chmod(fn,0o755); # set the permission
-
-    fn_latest = latest + cam + '_latest.jpg'
-    if SAFE_MODE:
         print( "Would copy {} to {}".format( fn, fn_latest ) )
     else:
+        req.urlretrieve( urls[cam] + url_suffix, fn )
+        chmod(fn,0o755) # set the permission
+
         system( "cp {} {}".format( fn, fn_latest ) )
-        chmod( fn_latest, 0o755 ); # set the permission
+        chmod( fn_latest, 0o755 ) # set the permission
 
 if __name__ == "__main__":
-    # load the configuration file
     cp = handle_config( 
       metadata={"invoking_script":"image_downloader"}, header="downloader"
     )
@@ -143,7 +139,7 @@ if __name__ == "__main__":
     p = multiprocessing.Pool( len(urls) )
     while (True):
         try:
-            day_flag = ps.get_altitude( lat, lon, datetime.now(timezone.utc) ) > 5
+            day_flag = ps.get_altitude(lat, lon, datetime.now(timezone.utc)) > 5
 
             # invoke makeRequest once per camera every intv seconds
             intv = interval_day if day_flag else interval_night
@@ -161,8 +157,9 @@ if __name__ == "__main__":
             msg = traceback.trace_exc()
             logger.error( msg )
         finally:
-            # stop save_image from looping so we can restart it with the new intv
+            # end the save_image loop so we can restart it with the new intv
             try:
                 saveimage_event()
             except:
-                pass
+	        msg = traceback.trace_exc()
+	        logger.error( msg )

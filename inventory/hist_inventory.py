@@ -16,8 +16,9 @@ import traceback
 try:
     from config_handler import handle_config
     from logger import Logger
+    import utils
 except:
-    print( "Failed to import config_handler or logger.\n" + 
+    print( "Failed to import config_handler, logger or utils.\n" + 
            "They are located in ../tools/\n" )
     print( traceback.format_exc() )
     exit( 1 )
@@ -36,8 +37,8 @@ NUM_CAMERAS = len(CAMERAS)
 # how long to sleep once we run out of images to log
 SLEEP_LEN = cp["inventory"]["hist"]["sleep_time"]
 
-ROOT = cp["paths"][SITE]["img_path"] # image directory
-CACHE_ROOT = cp["paths"][SITE]["cache_path"] # cache directory
+ROOT = cp["paths"][SITE]["img_path"]
+CACHE_ROOT = cp["paths"][SITE]["cache_path"]
 
 FOLDER_NAMES = [ROOT + x + "/" for x in CAMERAS]
 CACHE_FOLDER_NAMES = [CACHE_ROOT + x + "/" for x in CAMERAS]
@@ -46,46 +47,31 @@ CACHE_FOLDER_NAMES = [CACHE_ROOT + x + "/" for x in CAMERAS]
 INVENTORY_ROOT = cp["paths"][SITE]["inventory_path"] 
 
 # the code as is depends on the timestamp column being 'hour'
-HEADER = "hour," + ",".join(CAMERAS).lower() # inventory.csv header
+HEADER = "hour," + ",".join(CAMERAS).lower()
 HEADER_COLS = ["hour"] + CAMERAS
 
-default_s_time = "0000010100"
 if cp["inventory"]["start_date"]:
 	next_t = cp["inventory"]["start_date"]
-	next_t = str(next_t) + default_s_time[len(str(next_t)):]
-	next_t = datetime.strptime( next_t, "%Y%m%d%H" )
 else:
 	# default to the start of the current year
-	next_t = datetime( datetime.now().year, 1, 1 )
+	next_t = datetime.now().year
+next_t = utils.date_from_timestamp( next_t )
 
 if cp["inventory"]["end_date"]:
 	end_t = cp["inventory"]["end_date"]
-	end_t = str(end_t) + default_s_time[len(str(end_t)):]
-	end_t = datetime.strptime( end_t, "%Y%m%d%H" )
+	end_t = utils.date_from_timestamp( end_t )
 else:
+	# default to running forever as a daemon
 	end_t = None
 
 ### helper methods
-# was the file created during target_hour?
-def in_hour( file_name, target_hour ):
-	return file_name[5:-8] == target_hour # fragile...
-
-def get_inventory_name( year ):
-	return INVENTORY_ROOT + "inventory_{}.csv".format(year)
-	
-def create_inventory_file_if_missing( year ):
-	name = get_inventory_name( year )
-	if not os.path.exists( name ):
-		with open( name, "w" ) as inventory:
-			 inventory.write( HEADER + "\n" )
-	return name
-
 def list_files( day ):
 	file_lists = []
 	for path in FOLDER_NAMES:
 		p = path + day + "/"
-		# if there are no records for a day
-		# use a blank array
+		# if day hasn't happened yet or 
+		# a camera wasn't collecting on day
+		# there won't be a folder for day
 		if os.path.isdir( p ):
 			file_lists.append( os.listdir(p) )
 		else:
@@ -98,8 +84,7 @@ def list_cached_files( ):
 		file_lists.append( os.listdir(path) )
 	return file_lists
 
-def full_path( folder, file_n, use_cache=False ):
-	global day
+def full_path( folder, file_n, day, use_cache=False ):
 	if use_cache:
 		return os.path.join( folder + "/", file_n )
 	else:
@@ -110,36 +95,40 @@ def finish_inv():
 	exit(0)
 
 # construct and return an array representing an entry in inventory*.csv
-def count_folders( time_str, file_lists, use_cache=False ):
+def count_folders( hour, file_lists, use_cache=False ):
+	day = hour[:-2]
+
 	folder_names = CACHE_FOLDER_NAMES if use_cache else FOLDER_NAMES
 	count = [""] + ['0']*NUM_CAMERAS
 
 	for i, folder in enumerate(folder_names):
-		# filter file list for images created during the target hour
 		file_list = [
 		    f for f in file_lists[i]
-		    if f[-18:-8] == time_str # fragile
-		    and os.path.isfile( full_path( folder, f, use_cache ) ) 
+		    if f[-18:-8] == hour # fragile
+		    and os.path.isfile(full_path(folder, f, day, use_cache)) 
 		]
 
 		count[i+1] = str(len(file_list))
 		if len(file_list) and not count[0]:
-			count[0] = file_list[0][-18:-8] # fragile
+			count[0] = day
 	return count
 
 
-# create the inventory directory if it doesn't exist
 Path( INVENTORY_ROOT ).mkdir( parents=True, exist_ok=True )
 
 # if there is an inventory file for the target year 
-# start logging from the point where we left off earlier
-inventory_name = create_inventory_file_if_missing( next_t.year )
+# continue logging from the point where we left off earlier
+inventory_name = INVENTORY_ROOT + "inventory_{}.csv".format(next_t.year)
+if not os.path.exists( inventory_name ):
+	with open( inventory_name, "w" ) as inventory:
+		 inventory.write( HEADER + "\n" )
+
 old_data = pd.read_csv(inventory_name)
 if len(old_data.index):
 	t = old_data.loc[len(old_data.index)-1]['hour']
 	next_t = datetime.strptime( str(t), "%Y%m%d%H" ) + timedelta(hours=1)
 
-### main
+### main loop
 last_day = None
 last_year = next_t.year
 
@@ -148,9 +137,9 @@ while True:
 	try:
 		counts = pd.DataFrame( columns=HEADER_COLS )
 
-		max_t = datetime.now() # when are we sure there's no more data?
+		max_t = datetime.now()
 		last_success = next_t # the last hour where we found data
-		last_counts = 0 # counts during last_success
+		last_counts = 0 # size of counts during last_success
 
 		use_cache = False
 		while True:
@@ -161,14 +150,16 @@ while True:
 			if next_t >= max_t:
 				next_t = last_success
 				counts = counts[0:last_counts]
+				last_day = None
 				
 				if not use_cache:
 					# reload our files list from the cache
 					use_cache = True
-					last_day = None
 					continue
 				break
 			
+			# when we close out a year, we switch to a new inv file
+			# so, we need to write our counts df before continuing
 			if next_t.year != last_year:
 				last_year = next_t.year
 				break
@@ -208,7 +199,6 @@ while True:
 
 			next_t += timedelta( hours=1 )
 
-		# write new counts and the name of the hour to inventory.csv
 		counts.to_csv(inventory_name,mode='a',header=False,index=False)
 	except Exception as e:
 		logger.log_exception()
