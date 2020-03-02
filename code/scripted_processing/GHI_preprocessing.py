@@ -14,7 +14,7 @@ from ast import literal_eval as le
 
 def GHI_pre_MP(sensor):
 #for sensor in Sensors:
-    flist = glob.glob(DirPath + '2019-??_bps_' + str(sensor) + '_second.dat')
+    flist = glob.glob(DirPath + '2018-??_bps_' + str(sensor) + '_second.dat')
     #flist = glob.glob(DirPath + 'BPS_' + str(sensor) + '_Second.dat')
     for fn in flist:
         print("Processing GHI file: %s" % fn)
@@ -25,7 +25,7 @@ def GHI_pre_MP(sensor):
         bins = np.arange(df[0,0], df[-1,0], 60); timestamp = 0.5 * (bins[1:] + bins[:-1])
         ghi = st.bin_average_reg(df[:,1], df[:,0], bins);
 
-#         plt.figure(); plt.plot(timestamp/3600,ghi); plt.show()
+        plt.figure(); plt.plot(timestamp/3600,ghi); plt.show()
         np.savez(outPath+'GHI_'+str(sensor), timestamp=timestamp,ghi=ghi);
 
 
@@ -50,6 +50,7 @@ if __name__ == "__main__":
         cores_to_use = 20
 
     str2seconds = lambda x: (dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S')-dt.datetime(2018,1,1)).total_seconds()+3600*5
+    #str2seconds = lambda x: (dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S').replace(tzinfo = dt.timezone(-dt.timedelta(hours=5)))-dt.datetime(2018,1,1).replace(tzinfo = dt.timezone.utc))
 
     if not os.path.isdir(outPath):
         os.makedirs(outPath)

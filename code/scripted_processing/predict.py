@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib
+matplotlib.use('agg')
 from matplotlib import pyplot as plt
 from matplotlib import dates as md
 from sklearn.linear_model import LinearRegression
@@ -72,36 +74,40 @@ for day in days:
             DataX[sensor] = []
             DataY[sensor] = []
             
-           
-            x = np.genfromtxt(inpath+day[:8]+'/GHI'+str(sensor)+'.csv',delimiter=',');  # < ORIGINAL
-            #x = np.genfromtxt(inpath+'/GHI'+str(sensor)+'.csv',delimiter=',');         # Temp change to allow running of old data in dhuang3
-            
-            x = x[x[:,0]==forward];                                 #Take all rows where forecast period == forward
-            
-            if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
-                with np.load(GHI_path+'GHI_'+str(99)+'.npz') as data:       #
-                    ty, y = data['timestamp'], data['ghi']                  #
-            else:                                                           #
-                with np.load(GHI_path+'GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
-                    ty, y = data['timestamp'], data['ghi']                  # < ORIGINAL
-            
-            x = x[x[:,1]<=ty[-1]]                                   #Take all "feature" elements where timestamp is less than last GHI timestamp
-            tx=x[:,1].copy();                                       #Create copy of feature timestamps
-            itx = ((tx-ty[0]+30)//60).astype(int)                   #Create array of relative time based on first GHI timestamp, add 30 secs, floor to minutes, convert to int
-            print("len(x): %i\tlen y: %i\n" % (len(tx), len(ty)))
-            print("tx: %i\ty: %i\titx: %i\n" % (tx[0],ty[0],itx[0]))
-            x[:,1] = (y[itx])                                       #Select x values corresponding to times in itx
-            DataX[sensor] += [x[:,1:]]                              #Append timestamp and x values to DataX (does NOT copy forecast period "forward" column)
-            DataY[sensor] += [(y[itx + forward])]                   #Get future actual GHI
-            timestamp[sensor] += [tx];
+            try:
+                x = np.genfromtxt(inpath+day[:8]+'/GHI'+str(sensor)+'.csv',delimiter=',');  # < ORIGINAL
+                #x = np.genfromtxt(inpath+'/GHI'+str(sensor)+'.csv',delimiter=',');         # Temp change to allow running of old data in dhuang3
+                
+                x = x[x[:,0]==forward];                                 #Take all rows where forecast period == forward
+                
+                if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
+                    with np.load(GHI_path+'GHI_'+str(99)+'.npz') as data:       #
+                        ty, y = data['timestamp'], data['ghi']                  #
+                else:                                                           #
+                    with np.load(GHI_path+'GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
+                        ty, y = data['timestamp'], data['ghi']                  # < ORIGINAL
+                        ty -= 3600 #Add an hour (testing only!)
+                
+                x = x[x[:,1]<=ty[-1]]                                   #Take all "feature" elements where timestamp is less than last GHI timestamp
+                tx=x[:,1].copy();                                       #Create copy of feature timestamps
+                itx = ((tx-ty[0]+30)//60).astype(int)                   #Create array of relative time based on first GHI timestamp, add 30 secs, floor to minutes, convert to int
+                print("len(x): %i\tlen y: %i\n" % (len(tx), len(ty)))
+                try:
+                    print("tx: %i\ty: %i\titx: %i\n" % (tx[0],ty[0],itx[0]))
+                except IndexError:
+                    pass
+                x[:,1] = (y[itx])                                       #Select x values corresponding to times in itx
+                DataX[sensor] += [x[:,1:]]                              #Append timestamp and x values to DataX (does NOT copy forecast period "forward" column)
+                DataY[sensor] += [(y[itx + forward])]                   #Get future actual GHI
+                timestamp[sensor] += [tx];
 
 
-            DataX[sensor] = np.vstack(DataX[sensor])                #stack time series for all GHI locations vertically
-            DataY[sensor] = np.hstack(DataY[sensor])                #stack time series for persistence horizontally
-            timestamp[sensor] = np.hstack(timestamp[sensor])        #stack timestamps horizontally
+                DataX[sensor] = np.vstack(DataX[sensor])                #stack time series for all GHI locations vertically
+                DataY[sensor] = np.hstack(DataY[sensor])                #stack time series for persistence horizontally
+                timestamp[sensor] = np.hstack(timestamp[sensor])        #stack timestamps horizontally
 
             #print(DataY[sensor], DataX[sensor][:,0])
-            try:
+            #try:
                 mk = (DataY[sensor] > 0) & (DataX[sensor][:,0] > 0)     #create boolean list where persistence value and timestamp are both >0
                 DataX[sensor] = DataX[sensor][mk]                       #take subset selected above
                 DataX[sensor][:,0]/=400;                                #scale GHI by 400?  (note: data in *.npz is already scaled?)
@@ -116,7 +122,7 @@ for day in days:
             print("\t",DataX[sensor].shape,DataY[sensor].shape)
             print('\tMean GHI:', np.nanmean(DataY[sensor]))
 
-            with open('optimal_model{:02d}.md99'.format(forward),'rb') as fmod:
+            with open('optimal_model{:02d}.mod99'.format(forward),'rb') as fmod:
                 SVR_linear = pickle.load(fmod)                      #Load model
 
             testY_hat = SVR_linear.predict(DataX[sensor])           #Run model
@@ -124,8 +130,10 @@ for day in days:
 
 
             ts_offset = datetime(2018,1,1)                          #fix offset
-            ts_offset.replace(tzinfo=timezone.utc)
-            ts_fixed = timestamp[sensor]-ts_offset.timestamp()
+            #ts_offset.replace(tzinfo=timezone.utc)
+            #ts_fixed = (timestamp[sensor]+ts_offset.timestamp()-dt.timedelta(hours=5)
+            ts_fixed = timestamp[sensor] + (ts_offset.timestamp()-(3600*5))
+            #ts_fixed = (datetime.strptime(timestamp[sensor], '%Y-%m-%d %H:%M:%S')-datetime(2018,1,1)).total_seconds()+(3600*5)
             txt_timestamp = np.asarray(ts_fixed, dtype='datetime64[s]')
             md_timestamp = md.epoch2num(ts_fixed)
             #ts_str = ts_fixed.astype(object)
@@ -135,15 +143,15 @@ for day in days:
             #np.savetxt(forecast_path + "forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataX[sensor])), header="Timestamp,DateTime String, RawForecast",delimiter=",")
             np.savetxt(forecast_path + day[:8] + "/ML_forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataY[sensor], testY_hat, testY_per)), header="Timestamp,Actual_GHI,Forecast_GHI,Persistence_GHI",delimiter=",")
             
-            xfmt = md.DateFormatter('%H:%M', tz=pytz.timezone('US/Eastern'))
+            xfmt = md.DateFormatter('%H:%M', tz=timezone.utc ) #pytz.timezone('US/Eastern'))
             plt.figure();
             ax=plt.gca()
             ax.xaxis.set_major_formatter(xfmt)
             #xlocator = md.MinuteLocator(byminute=[0], interval = 1)
             #ax.xaxis.set_major_locator(xlocator)
             plt.title("Actual vs. Forecast Irradiance "+day,y=1.08, fontsize=16)
-            plt.xlabel('Hour (EST)');
-            plt.ylabel('Irradiance (W/m^2)'); 
+            plt.xlabel('Hour (UTC)');
+            plt.ylabel('Irradiance (W/m^2)');
             plt.plot(md_timestamp,DataY[sensor], "-", linewidth=1, label='Actual GHI');
             plt.plot(md_timestamp,testY_hat, "-", linewidth=1, label='Cloud-Tracking Forecast');
             plt.plot(md_timestamp,testY_per, "-", linewidth=1, label='Persistence Forecast');

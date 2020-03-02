@@ -190,10 +190,13 @@ def height_MP(mp_args):
     #if os.path.isfile(tmpfs+f[-18:-10]+'/'+basename+'.hkl') and (~REPROCESS):  ######already processed, skip
     #    return          
     
-#         print('Procesing', basename)
+    print('Procesing', basename)
+    print("Full name: %s" % tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     fpickle = glob.glob(tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     img=None
+    #print("len(fpickle)=%i" % len(fpickle))
     if len(fpickle)<=0:
+        print("preprocess!\n")
         img=cam.preprocess(imager,f,tmpfs);
     else:
         with open(fpickle[0],'rb') as input:

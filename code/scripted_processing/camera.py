@@ -157,8 +157,11 @@ class image:
         Output: rgb, red, rbr, cos_g will be specified.
         """           
         #####get the image acquisition time, this need to be adjusted whenever the naming convention changes 
-        t_local=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
-        t_std = t_local.replace(tzinfo=timezone(-timedelta(hours=5)))       
+        #t_local=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
+        t_std=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
+        #t_std = t_local + timedelta(hours=5) #replace(tzinfo=timezone(-timedelta(hours=5)))       
+        #print("\tUndistortion->t_local=%s\t\tt_std=%s\n" % (str(t_local),str(t_std)))
+        print("\tUndistortion->t_std=%s\n" % (str(t_std)))
         gatech = ephem.Observer(); 
         gatech.date = t_std.strftime('%Y/%m/%d %H:%M:%S')
         gatech.lat, gatech.lon = str(self.lat),str(self.lon)
@@ -166,6 +169,7 @@ class image:
         sz = np.pi/2-sun.alt; 
         self.sz = sz
         if day_only and sz>75*deg2rad:
+            print("Night time (sun angle = %f), skipping\n" % sz)
             return
              
         saz = 180+sun.az/deg2rad; saz=(saz%360)*deg2rad;
@@ -446,6 +450,7 @@ def preprocess(camera,fn,outpath):
     if len(glob.glob(fn_prev))<=0:
         return None
 
+    print("\tpreprocess->fn=%s\n\t\tt=%s\t\tt_prev=%s\n" % (fn, str(t), str(t_prev)))
     flist=[fn_prev,fn]
     q=deque();      
     for f in flist:

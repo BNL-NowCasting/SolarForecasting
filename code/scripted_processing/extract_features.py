@@ -18,13 +18,16 @@ def extract_MP(args):
     iGHI,iy0,ix0,ny,nx,img,timestamp = args
 #for iGHI in range(len(GHI_loc)):
     #iy0, ix0 = iys[iGHI], ixs[iGHI]
-    #print("\tExtracting for %i: %i, %i" % (iGHI,iy0,ix0))
+    #print("\tExtracting t=%s for %i: %i, %i" % (timestamp,iGHI,iy0,ix0))
     slc=np.s_[max(0,iy0-WIN_SIZE):min(ny-1,iy0+WIN_SIZE),max(0,ix0-WIN_SIZE):min(nx-1,ix0+WIN_SIZE)]
     if img.cm[slc].size >= 1:
-        rgb0 = img.rgb.astype(np.float32); rgb0[rgb0<=0] = np.nan
+        rgb0 = img.rgb.astype(np.float32); 
+        print(rgb0[rgb0>0])
+        rgb0[rgb0<=0] = np.nan
         rgb = np.reshape(rgb0[slc], (-1,3));
         R_mean1, G_mean1, B_mean1 = np.nanmean(rgb,axis=0);
         if np.isnan(R_mean1):
+            print("\tAt timestamp %s, sensor %i, np.isnan(R_mean1)==true" % (timestamp,iGHI))
             return
         R_min1, G_min1, B_min1 = np.nanmin(rgb,axis=0);
         R_max1, G_max1, B_max1 = np.nanmax(rgb,axis=0);
@@ -40,7 +43,8 @@ def extract_MP(args):
                 rgb = np.reshape(rgb0[slc], (-1,3));
                 R_mean2,G_mean2,B_mean2 = np.nanmean(rgb,axis=0);
                 if np.isnan(R_mean2):
-                    return
+                    #return
+                    continue
                 R_min2,G_min2,B_min2 = np.nanmin(rgb,axis=0);
                 R_max2,G_max2,B_max2 = np.nanmax(rgb,axis=0);
                 RBR2 = (R_mean2 - B_mean2) / (R_mean2 + B_mean2)
