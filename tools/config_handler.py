@@ -135,6 +135,7 @@ def find_and_load_configs( conf_names, main_config_f ):
         diff = list( set(conf_names) - set(configs.keys()) )
         conf_names = list(configs.keys())
         logger.log( "Error: failed to find configs " + str(diff) )
+        print( "Error: failed to find configs " + str(diff) )
 
     for name in conf_names:
         # modifies conf in-place
@@ -211,18 +212,21 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Handle config selection and creation")
     parser.add_argument( 'source', nargs="?", default=CONF_F, 
                          help="The configuration file to read from" )
-    parser.add_argument( '-i', '--siteid', 
-                         help="The site to use the configuration for." )
     parser.add_argument( '-c', '--config', action='append', default=[], 
                          help="Load an existing configuration with key CONFIG. Can be used multiple times; if multiple loaded configs share attributes, the last one given takes precendence." )
     parser.add_argument( '-n', '--new', nargs='?', const="unnamed", 
        help="Create a new configuration file with name NAME (defaults to a random key). Can be used in conjuction with -c to change the initial state of your new configuration." )
     parser.add_argument( '-e', '--edit', default="",
                          help="Edit an existing config file. When used in conjunction with -c, loads the target file and then loads any configs from -c on top of it." )
-    parser.add_argument( '-d', '--dates', action='append', default=[], 
-                         help="Shortcut to create a new configuration using the given date ranges for pipeline/target_days. Can be used multiple times. Cannot be used in conjuction with -n or -e" )
-    parser.add_argument( '-r', '--reprocess', action='store_true',  
-                         help="Shortcut to create a new configuration with pipeline/reprocess=True. Cannot be used in conjuction with -n or -e" )
+    parser.add_argument( '-i', '--siteid', 
+                         help="The site to use the configuration for." )
+    parser.add_argument( '-S', '--start', action='append', default=[], 
+                         help="Shortcut to create a new configuration using the given date ranges for pipeline/start_dates. Can be used multiple times. Cannot be used in conjuction with -n or -e" )
+    parser.add_argument( '-E', '--end', action='append', default=[],
+                         help="Shortcut to create a new configuration using the given date ranges for pipeline/end_dates. Can be used multiple times. Cannot be used in conjuction with -n or -e" )
+    parser.add_argument( '-r', '--reprocess', action='append', default=[], 
+                         const='all', nargs='?',
+                         help="Redo the given preprocessing step. 'all' if no arg given. Can be used multiple times. Cannot be used in conjuction with -n or -e. Valid options: 'all', 'features', 'stitch', 'motion', 'height', 'image_preprocessing'" )
     parser.add_argument('-l', '--leadminutes', action='append', default=[],
                          help="Shortcut to create a new configuration using the given values for pipeline/lead_minutes. Can be used multiple times. Cannot be used in conjuction with -n or -e" )
     parser.add_argument('-s', '--sensors', action='append', default=[],
@@ -397,11 +401,15 @@ def handle_config(default_config_name="", metadata={}, parser=None, header=""):
     loaded_conf_names = args.config # non-default config files to use
 
     # shortcuts to run custom pipeline...
-    if args.update or args.leadminutes or args.reprocess or args.dates or args.sensors or args.path or args.siteid:
+    if args.update or args.leadminutes or args.reprocess or args.start or args.end or args.sensors or args.path or args.siteid:
+        if len(args.start) != len(args.end):
+            print( "Number of --start and --end flags must match {} != {}".format( len(args.start), len(args.end) ) )
+            exit(1)
         # process quick-config args and generate an unnamed configuration to use
         lead_minutes = args.leadminutes
         reprocess = args.reprocess
-        target_dates = args.dates
+        target_start_dates = args.start
+        target_end_dates = args.end
         explicit_updates = args.update
         path_updates = args.path
         site_id = args.siteid
@@ -413,9 +421,14 @@ def handle_config(default_config_name="", metadata={}, parser=None, header=""):
         if lead_minutes:
             conf["pipeline"]["lead_minutes"] = lead_minutes
         if reprocess:
-            conf["pipeline"]["reprocess"] = reprocess
-        if target_dates:
-            conf["pipeline"]["target_dates"] = target_dates
+            for key in reprocess:
+                if key == "all":
+                    conf["pipeline"]["reprocess_all"] = True
+                elif key in conf["pipeline"]:
+                    conf["pipeline"][key]["reprocess"] = True
+        if target_start_dates:
+            conf["pipeline"]["target_ranges"]["start_dates"] = target_start_dates
+            conf["pipeline"]["target_ranges"]["end_dates"] = target_end_dates
         if site_id:
             conf["site_id"] = site_id
         for p in path_updates:

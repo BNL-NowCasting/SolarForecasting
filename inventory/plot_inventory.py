@@ -1,5 +1,4 @@
 from datetime import datetime
-import matplotlib as mpl
 import matplotlib.dates as dates
 import matplotlib.pyplot as plt
 import numpy as np

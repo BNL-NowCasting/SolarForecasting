@@ -1,0 +1,3 @@
+# cloud motion is handled by cloud height...
+def cloud_motion_helper(image_set, img, prev_img):
+	pass
