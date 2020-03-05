@@ -19,7 +19,7 @@ try:
     import utils
 except:
     print( "Failed to import config_handler, logger or utils.\n" + 
-           "They are located in ../tools/\n" )
+           "They are located in ../tools/" )
     print( traceback.format_exc() )
     exit( 1 )
 
@@ -31,7 +31,7 @@ logger = Logger( "hist_inventory", cp )
 
 ### load configuration
 SITE = cp["site_id"]
-CAMERAS = cp["cameras"][SITE]["cameras"]
+CAMERAS = cp["cameras"][SITE]["all_cameras"]
 NUM_CAMERAS = len(CAMERAS)
 
 # how long to sleep once we run out of images to log

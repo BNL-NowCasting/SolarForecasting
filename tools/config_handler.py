@@ -134,7 +134,7 @@ def find_and_load_configs( conf_names, main_config_f ):
     if len(configs.keys()) < len(conf_names):
         diff = list( set(conf_names) - set(configs.keys()) )
         conf_names = list(configs.keys())
-        logger.log( "Error: failed to find configs " + str(diff) )
+        #logger.log( "Error: failed to find configs " + str(diff) )
         print( "Error: failed to find configs " + str(diff) )
 
     for name in conf_names:

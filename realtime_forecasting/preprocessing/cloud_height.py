@@ -5,6 +5,9 @@ import tools.stat_tools_2 as st
 import traceback
 
 def cloud_height_helper( camera_dict, cam_id, images ):
+	import warnings
+	warnings.filterwarnings('ignore')
+	
 	cameras = camera_dict
 	images = images
 
@@ -12,13 +15,13 @@ def cloud_height_helper( camera_dict, cam_id, images ):
 		return
 
 	neighbors = cameras[cam_id].height_group
-	print( "Height for " + cam_id )
+	#print( "Height for " + cam_id )
 
 	img1 = images[cam_id]
 	img1.height = [[]]*img1.layers
 
 	cam1 = cameras[cam_id]
-	for n_id in neighbors:
+	for n_id in cameras: #neighbors:
 		cam2 = cameras.get( n_id, None )
 		if not cam2:
 			continue

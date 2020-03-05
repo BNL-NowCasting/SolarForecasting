@@ -10,7 +10,7 @@ from tools.utils import date_from_timestamp, quick_plot
 
 from sklearn.preprocessing import normalize, scale
 
-def forecast( config, logger, KEY="" ):
+def train( config, logger, KEY="" ):
 	target_ranges = sorted( zip(
 		config["pipeline"]["target_ranges"]["start_dates"],
 		config["pipeline"]["target_ranges"][ "end_dates" ]
@@ -38,7 +38,6 @@ def forecast( config, logger, KEY="" ):
 	for sensor in sensors:
 		data = None
 		# Load extracted features and preferred model
-		# Pass image features through model and save prediction
 		for timestamp in timestamps_to_consider():
 			# the ghi files contain a month of data
 			# no need to load them 90000 times each
@@ -68,29 +67,44 @@ def forecast( config, logger, KEY="" ):
 
 		data.reset_index( inplace=True, drop=True )
 		data.drop(data.columns[0], axis=1, inplace=True) # this should go away eventually; rn the way I do preprocessing, index becomes an unnamed column
-		for lt in lead_times:
-			print( sensor, lt )
-			model = None # pickle.load( ... )
-			with open('/home/tchapman/root/data/bnl/pickles/models/optimal_model{:02d}.mod99'.format(lt),'rb') as fmod:
-				model = pickle.load(fmod)
+		print( data.columns )
+		exit(0)
 
-			lt_data = data.loc[data["lead_time"] == lt].reset_index(drop=True)
-			#predictions = model.run( lt_data )
-			print( lt_data )
+		for lt in lead_times:
+			lt_data = data.loc[
+			    data["lead_time"] == lt
+			].reset_index(drop=True)
+
 			if len(lt_data.index) == 0:
 				print( "No data for lead time  "+ str(lt) )
 				continue
-			tmp = lt_data.drop( "lead_time", axis=1 )
+
+			features = lt_data.drop( "lead_time", axis=1 )
+			features = pd.merge( 
+			    features, 
+			    ground_truth[["timestamp", "ghi"]], 
+			    how='left', left_on=["time_str"], 
+			    right_on=["timestamp"]
+			)
+			features = features.drop(["time_str","timestamp"], axis=1)
+			print( features.columns )
+			features["ghi"] /= 400 # normalize GHI on absolute scale
+			# normalize everything else using only the data
+			features[features.columns[1:]] = scale( features[features.columns[1:]] )
+			# reorder
+			cols = list(features.columns[-1:]) + list(features.columns[:-1])
+			features = features[cols]
+
+			model = SVR(C=1, epsilon=0.001, kernal='linear')
+			model.fit( train_data, train_truth )
+			forecast = model.predict( test_data )
+			
+			print( sensor, lt )
+			#predictions = model.run( lt_data )
+			print( lt_data )
 			#print( ground_truth.columns )
-			tmp = pd.merge( tmp, ground_truth[["timestamp", "ghi"]], how='left', left_on=["time_str"], right_on=["timestamp"] )
-			tmp.drop( ["time_str", "timestamp"], inplace=True, axis=1 )
-			tmp["ghi"] /= 400
-			tmp[tmp.columns[1:]] = scale( tmp[tmp.columns[1:]] )
-			cols = list(tmp.columns[-1:]) + list(tmp.columns[:-1])
-			tmp = tmp[cols]
 			#print( tmp.columns )
 
-			forecast = model.predict( tmp )
 			final_timestamps = list(lt_data["time_str"])
 			lead_time_col = list(lt_data["lead_time"])
 			for i, ts in enumerate( final_timestamps ):
@@ -186,12 +200,12 @@ if __name__ == "__main__":
 		from logger import Logger
 	except:
 		print( "Failed to import config_handler or logger\n" +
-		   "They are located in ../tools/\n" )
+		   "They are located in ../tools/" )
 		exit( 1 )
 
 	cp = handle_config(
-	    metadata={"invoking_script": "preprocess"},
+	    metadata={"invoking_script": "train_svr"},
 	    header="pipeline"
 	)
-	logger = Logger( "forecast_pipeline", cp )
-	forecast( cp, logger )
+	logger = Logger( "model_training", cp )
+	train( cp, logger )

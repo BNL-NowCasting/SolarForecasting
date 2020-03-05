@@ -8,8 +8,21 @@ import tools.mncc as mncc
 import tools.stat_tools_2 as st
 import traceback
 
-def cloud_motion_helper(image_set, img, prev_img):
+import warnings
+
+def cloud_motion_helper(img):
+	# now that this is a multiprocessing script, it creates a copy of img
+	#	(is this even faster??)
+	# so we need to return v instead of (in addition to) setting it
+	warnings.filterwarnings('ignore')
+	prev_img = img.previous_image
+
 	img.v = [[np.nan, np.nan]]
+	img.layers = 1
+
+	if prev_img is None:
+		# sometimes individual cameras are missing data
+		return (img.c_id, img.v, img.layers)
 
 	r1 = prev_img.red.astype(np.float32)
 	r1[r1<=0] = np.nan
@@ -33,8 +46,7 @@ def cloud_motion_helper(image_set, img, prev_img):
 		dilated_cm = morphology.binary_dilation( img.cm, np.ones((15,15)) )
 		dilated_cm &= (r2>0)
 		[vy,vx,max_corr] = cloud_motion_math(
-		    image_set, r1, r2, 
-		    mask1=r1>0, mask2=dilated_cm, ratio=0.7, threads=4
+		    r1, r2, mask1=r1>0, mask2=dilated_cm, ratio=0.7, threads=4
 		)
 
 		if np.isnan(vy):
@@ -42,8 +54,9 @@ def cloud_motion_helper(image_set, img, prev_img):
 		else:
 			img.v = [[vy,vx]]
 			img.layers=1
+	return (img.c_id, img.v, img.layers)
 
-def cloud_motion_math(image_set, im1, im2, mask1=None, mask2=None, ratio=0.7, threads=1):
+def cloud_motion_math(im1, im2, mask1=None, mask2=None, ratio=0.7, threads=1):
 	"""
 	Determine cloud motion 
 	Input: Images and masks for two frames

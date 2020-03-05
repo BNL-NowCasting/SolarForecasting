@@ -25,10 +25,28 @@ def extract_features_helper( image_set ):
 	    "min_b2", "max_r2", "max_g2", "max_b2", "rbr2"
 	]
 	for i in range(len(image_set.ghi_locs)):
+		fdir = "{}{}/".format( image_set.feature_path, image_set.day )
+		if image_set.KEY:
+			fdir = "{}{}/{}/".format(
+			    image_set.feature_path, image_set.KEY, image_set.day
+			)
+		fn = "{}/{}_{}.csv".format(
+		    fdir, i, image_set.timestamp
+		)
+			
+		print( "FN: " + str(fn))
+		Path( fdir ).mkdir( parents=True, exist_ok=True )
 		features = pd.DataFrame( columns=columns )
+		features.to_csv(fn)
 
 		y = img_ys[i]
 		x = img_xs[i]
+
+		#print( "top" )
+		#print( image_set.ghi_locs[:,1])
+		print( i, img.lon, image_set.deg2km, np.cos( image_set.ghi_locs[0,0] * np.pi / 180. ) )
+		print( i, ghi_xs[i], img.h, np.tan(img.sz), np.sin(img.saz), img.pixel_size )
+		print( i, x, image_set.ghi_locs[i,1], img.lon, image_set.deg2km, np.cos(image_set.ghi_locs[0,0]*np.pi/180.) )
 
 		[ny, nx] = img.cm.shape
 
@@ -39,8 +57,7 @@ def extract_features_helper( image_set ):
 
 		# if the region over the sensor is outside of the camera's view
 		if img.cm[slc].size <= 0:
-			print( "img cm slc" )
-			print( nx, ny, x, y )
+			print( "Cannot extract features for sensor {} at {} because {} > {} or {} > {}".format( i, image_set.timestamp, x, nx, y, ny ) )
 			continue
 
 		rgb0 = img.rgb.astype(np.float32)
@@ -48,7 +65,7 @@ def extract_features_helper( image_set ):
 		rgb = np.reshape(rgb0[slc], (-1,3))
 		[avg_r, avg_g, avg_b] = np.nanmean(rgb,axis=0)
 		if np.isnan(avg_r):
-			print( "avg r" )
+			print( "Cannot extract features for sensor {} at {} because avg r is nan".format( i, image_set.timestamp ) )
 			continue
 
 		min_r, min_g, min_b = np.nanmin(rgb,axis=0)
@@ -68,7 +85,7 @@ def extract_features_helper( image_set ):
 
 			# can't see the lead_min distant clouds
 			if img.cm[slc].size <= 0:
-				print( "failed lead_min {} b/c cm".format( lead_min ) )
+				print( "failed lead_min {} b/c {} > {} or {} > {} (sensor {} at {})".format( lead_min, x2, nx, y2, ny, i, image_set.timestamp ) )
 				continue
 			rgb = np.reshape(rgb0[slc], (-1,3))
 			avg_r2, avg_g2, avg_b2 = np.nanmean(rgb,axis=0)
@@ -93,16 +110,5 @@ def extract_features_helper( image_set ):
 			]] ), columns=columns ) )
 
 		features.reset_index(drop=True, inplace=True)
-		print( features )
-		fdir = "{}{}/".format( image_set.feature_path, image_set.day )
-		if image_set.KEY:
-			fdir = "{}{}/{}/".format(
-			    image_set.feature_path, image_set.KEY, image_set.day
-			)
-		fn = "{}/{}_{}.csv".format(
-		    fdir, i, image_set.timestamp
-		)
-			
-		print( "FN: " + str(fn))
-		Path( fdir ).mkdir( parents=True, exist_ok=True )
-		features.to_csv(fn)
+
+		features.to_csv(fn,mode='a',header=False)

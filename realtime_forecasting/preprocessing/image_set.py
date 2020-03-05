@@ -6,7 +6,7 @@ from .stitch import stitch_helper
 
 from tools.utils import quick_plot
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import ephem
 import glob
 from itertools import repeat, zip_longest
@@ -21,8 +21,9 @@ import pickle
 import traceback
 
 def load_image( zip_item ):
-	c_id, camera, previous_image, f, reprocess, KEY, pick = zip_item
-	print("Load iamge " + str(c_id) )
+	camera, previous_image, f, reprocess, KEY, pick = zip_item
+	c_id = camera.c_id
+	print( "Load image " + c_id )
 
 	image_name = os.path.basename(f)
 
@@ -37,6 +38,10 @@ def load_image( zip_item ):
 		image.cloud_masked = None
 
 	image.undistort()
+	if image.error:
+		print( "Image undistort failed: " + str(image.error) )
+		# self.log_bad_image(image)
+		return (c_id, None)
 	image.cloud_mask()
 
 	return (c_id, image)
@@ -49,13 +54,13 @@ def append_to_csv( df, fp ):
 		df.to_csv( fp, mode='a', index=False, header=False )
 
 def get_next_image( image_path, cam, ts, file_lists ):
-	minute = ts.strftime( "%Y%m%d%H%M" )
-	second = ts.second
+	start_ts = ts.strftime( "%Y%m%d%H%M%S" )
+	end_ts = (ts+timedelta(seconds=30)).strftime( "%Y%m%d%H%M%S" )
+
 	filtered_files = [
 	    f for f in file_lists[cam]
-	    if f[-18:-6] == minute
-	    and int(f[-6:-4]) - int(second) < 30
-	    and int(f[-6:-4]) - int(second) >= 0
+	    if f[-18:-4] >= start_ts
+	    and f[-18:-4] < end_ts
 	    and os.path.isfile(f)
 	]
 	if len(filtered_files) == 0:
@@ -77,7 +82,6 @@ def use_test_methods( KEY, image_set ):
 	global undistort_helper
 	global stitch_helper
 
-	print( "KEY = "  +KEY)
 	script_names = [
 	    "image", "cloud_motion", "cloud_height", "stitch", "features"
 	]
@@ -128,20 +132,23 @@ class ImageSet:
 		self.config = config
 		#self.logger = logger
 
+		self.KEY = KEY
+
+
 		site = config["site_id"]
 		self.feature_path = config["paths"][site]["feature_path"]
 		self.pickle_path = config["paths"][site]["pickle_path"]
 		self.image_path = config["paths"][site]["img_path"]
 
-		self.KEY = KEY
-		self.previous_set = previous_set
-
 		self.timestamp = timestamp
 		self.time_str = timestamp.strftime( "%Y%m%d%H%M%S" )
 		self.day = timestamp.strftime( "%Y%m%d" )
 
+		self.set_reprocess() # determine which steps to reprocess
+
+		self.images = {}
+
 		## are we already done processing this ImageSet?
-		self.set_reprocess()
 		fp = "{}{}/{}/*_{}.csv".format(
 		    self.feature_path, KEY, self.day, self.timestamp
 		)
@@ -150,9 +157,8 @@ class ImageSet:
 			self.complete = True
 			return
 
-		## is it nighttime?
 		# I want this camera to be consistent between runs but also
-		# not to break if any given camera is missing data
+		# to work on all sites and if cameras are changed
 		arbitrary_camera = camera_dict[min(camera_dict.keys())]
 
 		gatech = ephem.Observer();
@@ -162,13 +168,16 @@ class ImageSet:
 
 		sun = ephem.Sun()
 		sun.compute(gatech)
-		if sun.alt < np.pi/20.:
+		if sun.alt < config["pipeline"]["night_altitude_rad"]:
 			self.skip_bc_night = True
 			print( "Skipping because it is night time" )
 			return
 
 		if KEY:
 			use_test_methods( self, KEY )
+
+		self.previous_set = previous_set
+		self.deg2km = config["pipeline"]["deg2km"]
 
 		self.cloud_base_height = None
 		self.cloud_base_vel = None
@@ -183,9 +192,9 @@ class ImageSet:
 		self.load_details(KEY=KEY)
 		if previous_set is not None and not previous_set.loaded:
 			previous_set.load_details(KEY=KEY)
+			previous_set.minimize_memory_load()
 		
 		self.camera_dict = camera_dict
-
 
 		self.pic_dir = "{}{}/image_sets/{}/".format(
 		    self.pickle_path, KEY, self.day
@@ -208,19 +217,15 @@ class ImageSet:
 			# we won't have to run this again
 			ImageSet.file_lists_day = day
 
-		self.images = {}
 		self.previous_images = {}
 
-#		self.load_images()
-		for c_id, cam in camera_dict.items():
-			self.load_image( c_id, cam )
-		print( "Finish init" )
+		self.load_images()
 		
 	def load_images( self ):
-		p = multiprocessing.Pool(10)
-
 		cam_ids = list(self.camera_dict.keys())
 		cameras = [self.camera_dict[c_id] for c_id in cam_ids]
+
+		p = multiprocessing.Pool(len(cam_ids))
 
 		if self.previous_set:
 			previous_images = [
@@ -238,9 +243,10 @@ class ImageSet:
 		for (c_id, img) in zip(cam_ids, previous_images):
 			self.previous_images[c_id] = img
 
-		args = zip(cam_ids, cameras, previous_images, file_paths, 
+		args = zip(cameras, previous_images, file_paths, 
 		            repeat(self.reprocess["image"]), repeat(self.KEY),
 		            repeat(self.pickle_path) )
+		print( "start load_image" )
 		images = p.map( 
 		    load_image, 
 		    args
@@ -249,49 +255,11 @@ class ImageSet:
 		p.join()
 
 		for (c_id, img) in images:
-			if not img.error:
+			if img is not None and not img.error:
 				self.images[c_id] = img
 
-	def load_image( self, c_id, camera ):
-		previous_set = self.previous_set
-
-		print(c_id)
-
-		previous_image = None
-		if previous_set and c_id in previous_set.images:
-			previous_image = previous_set.images[c_id]
-
-		f = get_next_image( 
-		    self.image_path, c_id, self.timestamp, 
-		    self.file_lists 
-		)
-		if not f:
-			print("Can't find file {} at {}".format(c_id,timestamp))
-			return
-		image_name = os.path.basename(f)
-
-		# load, undistort, cloud mask
-		image = Image(camera, f, previous_image, self.pickle_path, reprocess=self.reprocess, KEY=self.KEY)
-
-		if image.error:
-			print( "Image load failed: " + str(image.error) )
-			return
-
-		self.previous_images[c_id] = previous_image
-
-		if self.reprocess["image"]:
-			image.undistorted = False
-			image.cm = None
-
-		image.undistort()
-		image.cloud_mask()
-
-		self.images[c_id] = image
-
 	def cloud_height(self):
-		print( "Start cloud height" )
-		print( len(self.heights)  )
-		print( self.reprocess["height"] )
+		#print( "Start cloud height" )
 		if len(self.heights) and not self.reprocess["height"]:
 			print("Already found cloud heights: "+str(self.heights))
 			print( self.cloud_base_height )
@@ -308,13 +276,12 @@ class ImageSet:
 				print("skipping {}; img not found".format(cam))
 				continue
 
-			cloud_height_helper( self.camera_dict, cam, self.images )
+			cloud_height_helper(self.camera_dict, cam, self.images)
 
 		cams = list(self.camera_dict.keys())
 		cams.sort()
 
 		self.heights = [ self.images[cam].height if cam in self.images else [] for cam in cams ]
-		print( "set heights" )
 		try:
 			self.layer_heights = np.nanmedian( np.array( list(zip_longest(*self.heights, fillvalue=np.nan)) ), axis=1 )
 			self.cloud_base_height = self.layer_heights[0]
@@ -325,55 +292,61 @@ class ImageSet:
 
 		self.log_heights(cams)
 
-		print( "save ehighs" )
 		self.dump_set()
 		return self.heights
 
 	def cloud_motion(self):
-		print( "Start cloud motion" )
+		#print( "Start cloud motion" )
 		if self.cloud_base_vel is not None and not self.reprocess["motion"]:
 			print("Already found velocities " + str(self.vels))
-			print( self.cloud_base_vel )
+			#print( self.cloud_base_vel )
 			return self.vels
 
 		if self.skip_bc_night:
 			print( "Error: invoked cloud_motion but is night" )
 			return self.vels
 
-		for c_id, img in self.images.items():
-			cloud_motion_helper(
-			    self, self.images[c_id], self.previous_images[c_id]
-			)
+		p = multiprocessing.Pool(len(self.camera_dict.keys()))
+		motion_arr = p.map( cloud_motion_helper, self.images.values() )
+		p.close()
+		p.join()
 
-		self.vels = [img.v for img in self.images.values()]
+		for (c_id, vels, layers) in motion_arr:
+			self.images[c_id].v = vels
+			self.images[c_id].layers = layers
+
+		cams = list(self.camera_dict.keys())
+		cams.sort()
+
+		self.vels = [self.images[c_id].v if c_id in self.images else [[np.nan, np.nan]] for c_id in cams]
+
+		for img in self.images.values():
+			print( img.c_id, img.v )
+
 		try:
+			print( "self vels " + str(self.vels ) )
 			num_layers = max(len(im) for im in self.vels)
-			self.layer_vels = [[]]*num_layers
-			for i in range(num_layers):
-				self.layer_vels[i] = [
-				    np.nanmedian([img[i][0] if i < len(img) else np.nan for img in self.vels]),
-				    np.nanmedian([img[i][1] if i < len(img) else np.nan for img in self.vels])
-				]
-			self.layer_vels_2 = np.nanmedian( np.array( list(zip_longest(*self.vels, fillvalue=np.nan)) ), axis=1 )
+			self.layer_vels = np.nanmedian( np.array( list(zip_longest(*self.vels, fillvalue=np.nan)) ), axis=1 )
+			print( "layer vels " + str(self.layer_vels ) ) 
+			if not len(self.layer_vels[0]):
+				self.layer_vels[0] = [np.nan, np.nan]
 			self.cloud_base_vel = self.layer_vels[0]
 
 			print( self.vels )
 			print( self.layer_vels )
-			print( self.layer_vels_2 )
 		except AxisError:
 			print( "Failed to find layer_vels because there are no layers" )
-			self.layer_vels = []
-			self.cloud_base_vel = np.nan
+			print( traceback.format_exc() )
+			self.layer_vels = [[np.nan,np.nan]]
+			self.cloud_base_vel = [np.nan,np.nan]
 
 		print("Found velocities " + str(self.vels))
-		print("Found layer velocities " + str(self.layer_vels))
-		print( self.cloud_base_vel )
 
 		self.dump_set()
 		return self.vels
 
 	def extract_features(self):
-		print( "Start features" )
+		#print( "Start features" )
 		if self.extracted_features and not self.reprocess["features"]:
 			print( "Already extracted features" )
 			return
@@ -401,9 +374,8 @@ class ImageSet:
 		self.extracted_features = True
 		self.dump_set()
 
-
 	def stitch(self):
-		print( "Start stitch" )
+		#print( "Start stitch" )
 		if self.stitched_image is not None and not self.reprocess["stitch"]:
 			print("Already found stitch")
 			return self.stitched_image
@@ -426,8 +398,6 @@ class ImageSet:
 		heights = np.array(heights)
 		vels = np.array(vels)
 
-		self.deg2km = 6367*np.pi/180
-
 		self.min_lat = min( [cam.lat for cam in self.camera_dict.values()] )
 		self.min_lon = min( [cam.lon for cam in self.camera_dict.values()] )
 		self.max_lat = max( [cam.lat for cam in self.camera_dict.values()] )
@@ -441,9 +411,8 @@ class ImageSet:
 		stitch_helper( self, heights, vels )
 		self.dump_set()
 
-		#quick_plot( [self.stitched_image.rgb, self.stitched_image.cm] )
+#		quick_plot( [self.stitched_image.rgb, self.stitched_image.cm] )
 		return self.stitched_image.rgb
-
 
 	# load any saved intermediate results
 	def load_details(self, KEY=""):
@@ -462,14 +431,12 @@ class ImageSet:
 				for k, v in obj.__dict__.items():
 					print( k, v )
 					self.__dict__[k] = v
-			print( len(self.heights) )
 		elif KEY and not self.reprocess["all"]:
 			# if we haven't processed this timestamp with KEY,
 			# check if we have any reusable intermediate values
 			# from processing it with KEY=""
 			self.load_details()
 		self.loaded = True
-		
 
 	def fill_dependencies(self, root):
 		arr = self.dependencies[root]
@@ -549,7 +516,6 @@ class ImageSet:
 		# dtype=float casts None to nan
 
 		print( "Found cloud heights: " + str(self.heights) )
-		print( self.cloud_base_height )
 
 		header = ["timestamp"] + cams + ["avg"]
 		h_df = pd.DataFrame( [np.concatenate( (
@@ -558,4 +524,12 @@ class ImageSet:
 		    np.array([self.cloud_base_height])
 		) )], columns=header )
 		append_to_csv( h_df, "/home/tchapman/root/data/bnl/height_estimation_{}.csv".format( self.KEY ) )
+
+	def minimize_memory_load(self):
+		if self.loaded and self.complete:
+			self.stitched_image = None
+			self.file_lists = None
+			self.camera_dict = None
+			self.config = None
+			self.previous_set = None
 

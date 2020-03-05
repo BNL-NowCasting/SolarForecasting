@@ -15,11 +15,14 @@ from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 
 class Camera:
-    def __init__(self, c_id, config, max_theta=7*np.pi/18., nx=2000, ny=2000):
+    def __init__(self, c_id, config, max_theta=7*np.pi/18.):
         site = config["site_id"]
         self.lat, self.lon = config["cameras"][site][c_id]["latlon"]
         self.height_group = config["cameras"][site][c_id]["group"]
         params = config["cameras"][site][c_id]["calibration_coef"]
+
+        nx = config["cameras"]["img_w"]
+        ny = config["cameras"]["img_h"]
 
         #### size of the undistorted image 
         if nx>=2000:

@@ -10,7 +10,7 @@ from tools.utils import date_from_timestamp, quick_plot
 
 from sklearn.preprocessing import normalize, scale
 
-def forecast( config, logger, KEY="" ):
+def train( config, logger, KEY="" ):
 	target_ranges = sorted( zip(
 		config["pipeline"]["target_ranges"]["start_dates"],
 		config["pipeline"]["target_ranges"][ "end_dates" ]

@@ -50,9 +50,6 @@ def process_sensor( pairing ):
 	fn = "{}{}/{}_bps_{}_second.dat".format(
 	    ghi_path, month, month, sensor
 	)
-	fn = "/home/amcmahon/data/originalGHI/{}_bps_{}_second.dat".format(
-	    month, sensor
-	)
 	print( fn )
 	if not os.path.exists( fn ):
 		print( "File does not exist" )

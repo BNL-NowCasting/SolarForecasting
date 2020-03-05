@@ -11,11 +11,20 @@ import tools.stat_tools_2 as st
 import traceback
 
 class Image:
-	def __init__(self, camera, fn, previous_image, pickle_path, reprocess=False, KEY=""):
+	def __init__(self, fn, prev_fn, pickle_path, camera_object=None, camera_id=None, reprocess=False, KEY=""):
 		bn = os.path.basename( fn )
 		self.timestamp = datetime.strptime( bn[-18:-4], "%Y%m%d%H%M%S" )
 		self.day = bn[-18:-10]
 		self.pickle_path = pickle_path
+
+		if camera_object:
+			camera = camera_object
+		elif camera_id:		
+			camera = utils.load_camera_object( camera_id, self.pickle_path ) 
+		else:
+			print( "Image constructor requires camera_object or camera_id" )
+			exit(1)
+
 		self.pic_dir = "{}preprocessed_imgs/{}/".format(
 			self.pickle_path, self.day
 		)
@@ -42,15 +51,16 @@ class Image:
 				with open( old_pic_path, 'rb' ) as fh:
 					self.__dict__ = pickle.load(fh).__dict__
 				return
-		print( "Not loading pickled image" )
 
 		self.fn = fn
 		self.camera = camera
-		self.previous_image = previous_image
-		# I pickle everything, so we can't have this recursing back
-		# to the first instance processed.
-		if self.previous_image:
+		self.previous_image = None
+		if prev_fn is not None:
+			self.previous_image = Image( prev_fn, None, pickle_path, camera_object=camera )
+			# I pickle everything, so we can't have this recursing back
+			# to the first instance processed.
 			self.previous_image.previous_image = None
+			self.previous_image.camera = None
 
 		self.c_id = camera.c_id
 		self.nx = camera.nx
@@ -76,10 +86,14 @@ class Image:
 		self.skip_bc_night = False
 		self.error = ""
 
-		self.dump_image()
+#		self.dump_self()
 
 	def undistort( image, rgb=True, day_only=True ):
 		print( "Start undistort" )
+		import warnings
+		#warnings.filterwarnings('ignore')
+
+		#print( "Start undistort" )
 		if image.undistorted:
 			print( "already undistorted" )
 			return
@@ -111,6 +125,12 @@ class Image:
 			print('Cannot read file:', image.fn)
 			print( traceback.format_exc() )
 			image.error = str(e)
+			return None
+
+		if len(im0.shape) != 3:
+			# some corrupted images can be read (and displayed)
+			# but for some reason load as empty matrices
+			image.error = "Corrupted image; shape = " + str(im0.shape)
 			return None
 
 		im0 = im0[cam.roi]
@@ -156,9 +176,11 @@ class Image:
 			image.rgb = im
 	
 		image.undistorted = True
-		image.dump_image()
+#		image.dump_self()
 
 	def cloud_mask( self ):
+		import warnings
+		#warnings.filterwarnings('ignore')
 		print( "Start cloud mask" )
 		if self.cloud_masked:
 			print( "already cloud masked" )
@@ -293,9 +315,50 @@ class Image:
 
 		self.layers = 1
 
-		self.dump_image()
+#		self.dump_self()
 
-	def dump_image(self):
+	def cloud_motion(self):
+		prev_self = self.previous_image
+
+		self.v = [[np.nan, np.nan]]
+		self.layers = 1
+
+		if prev_img is None:
+			# sometimes individual cameras are missing data
+			return
+
+		r1 = prev_img.red.astype(np.float32)
+		r1[r1<=0] = np.nan
+		r2 = self.red.astype(np.float32)
+		r2[r2<=0] = np.nan
+		err0 = r2-r1
+
+		dif = np.abs(err0)
+		# MAGIC CONSTANT 5,6,7,8
+		dif = st.rolling_mean2(dif,20)
+		semi_static = (abs(dif)<10) & (r1-127>100)
+		semi_static = morphology.binary_closing(semi_static, np.ones((10,10)))
+		semi_static = remove_small_objects(semi_static, min_size=200, in_place=True)
+		self.rgb[semi_static] = 0
+		r2[semi_static] = np.nan
+
+		if np.sum(self.cm>0) < 2e-2*self.nx*self.ny:
+			# no clouds
+			self.layers=0;
+		else:
+			dilated_cm = morphology.binary_dilation( self.cm, np.ones((15,15)) )
+			dilated_cm &= (r2>0)
+			[vy,vx,max_corr] = cloud_motion_math(
+			    r1, r2, mask1=r1>0, mask2=dilated_cm, ratio=0.7, threads=4
+			)
+
+			if np.isnan(vy):
+				self.layers=0;
+			else:
+				self.v = [[vy,vx]]
+				self.layers=1
+
+	def dump_self(self):
 		Path( self.pic_dir ).mkdir( parents=True, exist_ok=True )
 		with open( self.pic_path, 'wb' ) as fh:
 			pickle.dump( self, fh, pickle.HIGHEST_PROTOCOL )

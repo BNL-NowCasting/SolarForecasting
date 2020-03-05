@@ -15,14 +15,15 @@ def stitch_helper( image_set, heights, vels ):
 	stitched_image.saz = rand_img.saz
 
 
+#	print( rand_img.camera.max_theta * 180 /np.pi )
 	max_tan = np.tan(rand_img.camera.max_theta)
 	for l, h in enumerate(heights):
 		if np.isnan(h):
 			continue
-		h /= 1e3
+		h /= 1.e3
 
-		stitched_image.lon = image_set.min_lon - h * max_tan*180/np.pi / image_set.deg2km / np.cos( image_set.median_lat * np.pi / 180 )
-		stitched_image.lat = image_set.max_lat + h * max_tan*180/np.pi / image_set.deg2km
+		stitched_image.lon = image_set.min_lon - h * max_tan / image_set.deg2km / np.cos( image_set.median_lat * np.pi / 180 )
+		stitched_image.lat = image_set.max_lat + h * max_tan / image_set.deg2km
 
 		stitched_image.h = h
 		stitched_image.v = vels[l]
@@ -36,7 +37,7 @@ def stitch_helper( image_set, heights, vels ):
 		nstch_y = int(y_len//pixel_size)
 		nstch_x = int(x_len//pixel_size)
 		
-		print( h, nstch_x, nstch_y, x_len, y_len, stitched_image.lon, stitched_image.lat, max_tan )
+#		print( h, nstch_x, nstch_y, x_len, y_len, stitched_image.lon, stitched_image.lat, max_tan )
 
 		# print(pixel_size,xlen,ylen)
 		rgb = np.zeros( (nstch_y,nstch_x,3), dtype=np.float32 )
