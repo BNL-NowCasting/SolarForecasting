@@ -12,6 +12,7 @@ import glob,pickle
 from collections import deque
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
+import pytz
 
 BND_WIN = 20;
 BND_RED_THRESH, BND_RBR_THRESH  = 2/1.5, 0.012/2
@@ -43,9 +44,20 @@ params = {'HD2C':[2821.0000,1442.8231,1421.0000,0.1700,-0.0135,-2.4368,0.3465,-0
 
 deg2rad=np.pi/180
 
+def localToUTC(t, local_tz):
+    t_local = local_tz.localize(t, is_dst=None)
+    t_utc = t_local.astimezone(pytz.utc)
+    return t_utc
+    
+def UTCtimestampTolocal(ts, local_tz):
+    t_utc = dt.datetime.fromtimestamp(ts,tz=pytz.timezone("UTC"))
+    t_local = t_utc.astimezone(local_tz)
+    return t_local
+
+
 class camera:
     ###variable with the suffix '0' means it is for the raw, undistorted image
-    def __init__(self, camID, max_theta=70,nx=2000,ny=2000): 
+    def __init__(self, camID, max_theta=70,nx=2000,ny=2000,cam_tz=pytz.timezone("UTC")):      
         #### size of the undistorted image 
         if nx>=2000:
             nx=ny=2000
@@ -55,11 +67,13 @@ class camera:
         try:   #####check if the camera object is precomputed  
             with open(static_mask_path+camID+'.'+str(nx)+'.pkl','rb') as input:
                 self.__dict__=pickle.load(input).__dict__;
+                self.cam_tz = cam_tz
 #             print(self.camID,self.nx)
             return 
         except:
             pass;
-
+         
+        self.cam_tz = cam_tz
         self.camID=camID
         self.lat, self.lon=coordinate[camID]
         nx0=ny0=params[camID][0]
@@ -144,6 +158,7 @@ class image:
         self.saz=None
         self.red=None    #####spatial structure/texture of the red image, used by the cloud motion and height routines
         self.cm=None     #####cloud mask
+        self.cam_tz = cam.cam_tz
 #         self.cos_g=None
 
     def dump_img(self,filename):
@@ -157,8 +172,10 @@ class image:
         Output: rgb, red, rbr, cos_g will be specified.
         """           
         #####get the image acquisition time, this need to be adjusted whenever the naming convention changes 
-        #t_local=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
-        t_std=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
+        #ts=localToUTCtimestamp(datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S'),cam.cam_tz)    #get UTC timestamp
+        #t_std=UTCtimestampTolocal(ts, pytz.timezone("UTC"))                                      #create datetime in UTC
+        t_std = localToUTC(datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S'),self.cam_tz)
+        #t_std=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
         #t_std = t_local + timedelta(hours=5) #replace(tzinfo=timezone(-timedelta(hours=5)))       
         #print("\tUndistortion->t_local=%s\t\tt_std=%s\n" % (str(t_local),str(t_std)))
         print("\tUndistortion->t_std=%s\n" % (str(t_std)))
@@ -440,10 +457,10 @@ def cloud_height(img1,img2,layer=0,distance=None):
     return res             
          
 
-def preprocess(camera,fn,outpath):
+def preprocess(cam,fn,outpath):
     if not os.path.isdir(outpath+fn[-18:-10]):
         os.makedirs(outpath+fn[-18:-10])
-    t=datetime.strptime(fn[-18:-4],'%Y%m%d%H%M%S'); 
+    t=localToUTC(datetime.strptime(fn[-18:-4],'%Y%m%d%H%M%S'),cam.cam_tz); 
     t_prev=t-timedelta(seconds=30);
     t_prev=t_prev.strftime('%Y%m%d%H%M%S');
     fn_prev=fn.replace(fn[-18:-4],t_prev);
@@ -454,8 +471,8 @@ def preprocess(camera,fn,outpath):
     flist=[fn_prev,fn]
     q=deque();      
     for f in flist:
-        img=image(camera,f);  ###img object contains four data fields: rgb, red, rbr, and cm 
-        img.undistort(camera,rgb=True);  ###undistortion
+        img=image(cam,f);  ###img object contains four data fields: rgb, red, rbr, and cm 
+        img.undistort(cam,rgb=True);  ###undistortion
         if img.rgb is None:
             return None
         q.append(img)  
@@ -476,7 +493,7 @@ def preprocess(camera,fn,outpath):
         q[-1].rgb[semi_static]=0;
         r2[semi_static]=np.nan
 
-        cloud_mask(camera,q[-1],q[-2]); ###one-layer cloud masking        
+        cloud_mask(cam,q[-1],q[-2]); ###one-layer cloud masking        
         if (q[-1].cm is None):
             q.popleft();             
             continue

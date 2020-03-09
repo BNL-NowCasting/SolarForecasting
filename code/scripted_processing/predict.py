@@ -15,6 +15,19 @@ from datetime import datetime, timezone, timedelta
 from ast import literal_eval as le
 import pytz
 
+
+
+def localToUTCtimestamp(t, local_tz):
+    t_local = local_tz.localize(t, is_dst=None)
+    t_utc = t_local.astimezone(pytz.utc)
+    return t_utc.timestamp()
+    
+def UTCtimestampTolocal(ts, local_tz):
+    t_utc = datetime.fromtimestamp(ts,tz=pytz.timezone("UTC"))
+    t_local = t_utc.astimezone(local_tz)
+    return t_local
+
+
 try:
     try:
         config_path = sys.argv[1]
@@ -33,6 +46,14 @@ try:
     #lead_minutes=[1,3,5,10,15,30,45]; 
     #sensors = np.arange(99,100)
     sensors = le(cp["forecast"]["sensors"])
+    
+    try:
+        forecast_timezone=pytz.timezone(cp["forecast"]["forecast_timezone"])
+        print("Using camera timezone: %s" % str(forecast_timezone))
+    except Exception:
+        forecast_timezone=pytz.timezone("utc")    
+        print("Error processsing forecast timezone config, assuming UTC")
+   
 except KeyError as e:
     print("Error loading config: %s" % e)
       
@@ -81,12 +102,12 @@ for day in days:
                 x = x[x[:,0]==forward];                                 #Take all rows where forecast period == forward
                 
                 if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
-                    with np.load(GHI_path+'GHI_'+str(99)+'.npz') as data:       #
+                    with np.load(GHI_path+day[6:]+'/GHI_'+str(99)+'.npz') as data:       #
                         ty, y = data['timestamp'], data['ghi']                  #
                 else:                                                           #
-                    with np.load(GHI_path+'GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
+                    with np.load(GHI_path+day[6:]+'/GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
                         ty, y = data['timestamp'], data['ghi']                  # < ORIGINAL
-                        ty -= 3600 #Add an hour (testing only!)
+                        #ty -= 3600 #Add an hour (testing only!)
                 
                 x = x[x[:,1]<=ty[-1]]                                   #Take all "feature" elements where timestamp is less than last GHI timestamp
                 tx=x[:,1].copy();                                       #Create copy of feature timestamps
@@ -129,28 +150,32 @@ for day in days:
             testY_per = DataX[sensor][:,0]*400                      #Create persistence model (and rescale)
 
 
-            ts_offset = datetime(2018,1,1)                          #fix offset
+            #ts_offset = datetime(2018,1,1)                          #fix offset
             #ts_offset.replace(tzinfo=timezone.utc)
             #ts_fixed = (timestamp[sensor]+ts_offset.timestamp()-dt.timedelta(hours=5)
-            ts_fixed = timestamp[sensor] + (ts_offset.timestamp()-(3600*5))
+            #ts_fixed = timestamp[sensor] + (ts_offset.timestamp()-(3600*5))
             #ts_fixed = (datetime.strptime(timestamp[sensor], '%Y-%m-%d %H:%M:%S')-datetime(2018,1,1)).total_seconds()+(3600*5)
-            txt_timestamp = np.asarray(ts_fixed, dtype='datetime64[s]')
-            md_timestamp = md.epoch2num(ts_fixed)
+            #md_timestamp = md.epoch2num(ts_fixed)
             #ts_str = ts_fixed.astype(object)
             #ts_str = [datetime.fromtimestamp(ts).strftime("%m/%d/%Y %H:%M:%S") for ts in ts_str]
             #print(ts_str)
             
+            ts_fixed = timestamp[sensor] #np.vectorize(UTCtimestampTolocal)(timestamp[sensor], forecast_timezone)
+            md_timestamp = md.epoch2num(ts_fixed)
+            
+            
+            
             #np.savetxt(forecast_path + "forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataX[sensor])), header="Timestamp,DateTime String, RawForecast",delimiter=",")
             np.savetxt(forecast_path + day[:8] + "/ML_forecast_" + str(sensor) + "_" + str(forward) + "min.csv", np.column_stack((ts_fixed, DataY[sensor], testY_hat, testY_per)), header="Timestamp,Actual_GHI,Forecast_GHI,Persistence_GHI",delimiter=",")
             
-            xfmt = md.DateFormatter('%H:%M', tz=timezone.utc ) #pytz.timezone('US/Eastern'))
+            xfmt = md.DateFormatter('%H:%M', tz=forecast_timezone) #pytz.timezone('US/Eastern'))
             plt.figure();
             ax=plt.gca()
             ax.xaxis.set_major_formatter(xfmt)
             #xlocator = md.MinuteLocator(byminute=[0], interval = 1)
             #ax.xaxis.set_major_locator(xlocator)
             plt.title("Actual vs. Forecast Irradiance "+day,y=1.08, fontsize=16)
-            plt.xlabel('Hour (UTC)');
+            plt.xlabel('Hour (%s)' % str(forecast_timezone))
             plt.ylabel('Irradiance (W/m^2)');
             plt.plot(md_timestamp,DataY[sensor], "-", linewidth=1, label='Actual GHI');
             plt.plot(md_timestamp,testY_hat, "-", linewidth=1, label='Cloud-Tracking Forecast');

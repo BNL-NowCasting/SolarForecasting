@@ -17,6 +17,7 @@ import configparser
 from ast import literal_eval as le
 import warnings
 warnings.filterwarnings("ignore")
+import pytz
 
 SAVE_FIG=True
 REPROCESS=False; #False  ####reprocess already processed file?
@@ -196,7 +197,7 @@ def height_MP(mp_args):
     img=None
     #print("len(fpickle)=%i" % len(fpickle))
     if len(fpickle)<=0:
-        print("preprocess!\n")
+        print("\tPreprocessing\n")
         img=cam.preprocess(imager,f,tmpfs);
     else:
         with open(fpickle[0],'rb') as input:
@@ -301,6 +302,13 @@ if __name__ == "__main__":
         stitch_path=le(cp["paths"]["stitch_path"])
         
         try:
+            cam_tz=pytz.timezone(cp["cameras"]["cam_timezone"])
+            print("Using camera timezone: %s" % str(cam_tz))
+        except Exception:
+            cam_tz=pytz.timezone("utc")    
+            print("Error processsing cameara timezone config, assuming UTC")
+        
+        try:
             cores_to_use = int(cp["server"]["cores_to_use"])
         except Exception:
             cores_to_use = 20
@@ -312,7 +320,7 @@ if __name__ == "__main__":
 
     cameras={};
     for camID in all_cams:
-        cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000) 
+        cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000,cam_tz=cam_tz) 
 
     lon0,lat0=cameras['HD5A'].lon,cameras['HD5B'].lat
     x_cams=(cameras['HD1B'].lon-lon0)*deg2km*np.cos(cameras['HD1B'].lat*np.pi/180)

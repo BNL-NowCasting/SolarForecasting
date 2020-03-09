@@ -7,6 +7,7 @@ import multiprocessing
 import datetime as dt
 import configparser
 from ast import literal_eval as le
+import pytz
 
 SAVE_FIG=True
 deg2km=6367*np.pi/180
@@ -61,7 +62,13 @@ def extract_MP(args):
 #ax[1].imshow(img.cm); 
 #plt.tight_layout(); 
 #plt.savefig(outpath+'GHI'+str(iGHI+1)+'.png')
-#plt.show();    
+#plt.show();
+
+def localToUTCtimestamp(t, local_tz):
+    t_local = local_tz.localize(t, is_dst=None)
+    t_utc = t_local.astimezone(pytz.utc)
+    return t_utc.timestamp()
+
 
 if __name__ == "__main__":
 
@@ -85,6 +92,13 @@ if __name__ == "__main__":
         lead_minutes=le(cp["forecast"]["lead_minutes"])
         lead_steps=[lt/INTERVAL for lt in lead_minutes]
         days=le(cp["forecast"]["days"])
+     
+        try:
+            cam_tz=pytz.timezone(cp["cameras"]["cam_timezone"])
+            print("Using camera timezone: %s" % str(cam_tz))
+        except Exception:
+            cam_tz=pytz.timezone("utc")    
+            print("Error processsing cameara timezone config, assuming UTC")
      
         try:
             cores_to_use = int(cp["server"]["cores_to_use"])
@@ -117,7 +131,9 @@ if __name__ == "__main__":
         #flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day[:8]+'1511*sth'))
         for f in flist:
             with open(f,'rb') as input:
-                timestamp = (dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S')-dt.datetime(2018,1,1)).total_seconds()
+                #timestamp = (dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S')-dt.datetime(2018,1,1)).total_seconds()
+                timestamp  = localToUTCtimestamp(dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S'), cam_tz)
+                
                 print(timestamp, f)
                 img=pickle.load(input);
                 if not np.isfinite(img.height):
