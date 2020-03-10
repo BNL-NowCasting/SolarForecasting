@@ -102,10 +102,10 @@ for day in days:
                 x = x[x[:,0]==forward];                                 #Take all rows where forecast period == forward
                 
                 if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
-                    with np.load(GHI_path+day[6:]+'/GHI_'+str(99)+'.npz') as data:       #
+                    with np.load(GHI_path+day[:6]+'/GHI_'+str(99)+'.npz') as data:       #
                         ty, y = data['timestamp'], data['ghi']                  #
                 else:                                                           #
-                    with np.load(GHI_path+day[6:]+'/GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
+                    with np.load(GHI_path+day[:6]+'/GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
                         ty, y = data['timestamp'], data['ghi']                  # < ORIGINAL
                         #ty -= 3600 #Add an hour (testing only!)
                 
@@ -136,6 +136,9 @@ for day in days:
             except ValueError as e:
                 print("Skipping sensor %i, %s" % (sensor, str(e)))
                 continue                                                #This will get thrown if there's no GHI data and DataY is filled with NaNs
+            except IndexError as e:
+                print("Skipping sensor %i, %s" % (sensor, str(e)))
+                continue 
             # DataX[:,1:] = normalize(DataX[:,1:],axis=0);  
             DataY[sensor] = DataY[sensor][mk]                       #take subset to match x values
             timestamp[sensor] = timestamp[sensor][mk]               #take subset to match x values

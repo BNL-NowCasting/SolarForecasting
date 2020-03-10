@@ -1,5 +1,7 @@
 import numpy as np
 import os, sys, glob, subprocess
+import matplotlib
+matplotlib.use('agg')
 from matplotlib import pyplot as plt
 import pickle
 import stat_tools as st
@@ -16,16 +18,16 @@ WIN_SIZE = 50
 INTERVAL = 0.5 ####0.5 min or 30 sec
 
 def extract_MP(args):
-    iGHI,iy0,ix0,ny,nx,img,timestamp = args
+    iGHI,iy0,ix0,ny,nx,img,timestamp,outpath = args
 #for iGHI in range(len(GHI_loc)):
     #iy0, ix0 = iys[iGHI], ixs[iGHI]
     #print("\tExtracting t=%s for %i: %i, %i" % (timestamp,iGHI,iy0,ix0))
     slc=np.s_[max(0,iy0-WIN_SIZE):min(ny-1,iy0+WIN_SIZE),max(0,ix0-WIN_SIZE):min(nx-1,ix0+WIN_SIZE)]
     if img.cm[slc].size >= 1:
         rgb0 = img.rgb.astype(np.float32); 
-        print(rgb0[rgb0>0])
         rgb0[rgb0<=0] = np.nan
         rgb = np.reshape(rgb0[slc], (-1,3));
+        #print(rgb)
         R_mean1, G_mean1, B_mean1 = np.nanmean(rgb,axis=0);
         if np.isnan(R_mean1):
             print("\tAt timestamp %s, sensor %i, np.isnan(R_mean1)==true" % (timestamp,iGHI))
@@ -54,15 +56,12 @@ def extract_MP(args):
                         cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,\
                         cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2],dtype=np.float32) 
                 tmp=np.reshape(tmp,(1,-1));
-                out_args += [(iGHI,tmp,', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))]
+                
+                plt_data = (ix, iy)
+                out_args += [(plt_data,iGHI,tmp,', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))]      
+                
         return out_args
 
-#fig,ax=plt.subplots(1,2,sharex=True,sharey=True);
-#ax[0].imshow(img.rgb); ax[0].scatter(ix,iy,s=3,marker='o');
-#ax[1].imshow(img.cm); 
-#plt.tight_layout(); 
-#plt.savefig(outpath+'GHI'+str(iGHI+1)+'.png')
-#plt.show();
 
 def localToUTCtimestamp(t, local_tz):
     t_local = local_tz.localize(t, is_dst=None)
@@ -144,12 +143,29 @@ if __name__ == "__main__":
                 iys = (0.5 + (y + img.height*np.tan(img.sz)*np.cos(img.saz))/img.pixel_size).astype(np.int32)
                 ixs = (0.5 + (x - img.height*np.tan(img.sz)*np.sin(img.saz))/img.pixel_size).astype(np.int32)
                 
-                features = p.map(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp] for iGHI in range(len(GHI_loc))])
+                features = p.map(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp,outpath+day[:8]] for iGHI in range(len(GHI_loc))])
+                
+                fig,ax=plt.subplots(1,2,sharex=True,sharey=True);
+                ax[0].imshow(img.rgb); 
+                ax[1].imshow(img.cm);
+                colors=matplotlib.cm.rainbow(np.linspace(1,0,len(lead_minutes)))
+                
                 for timesteps in features:
                     if timesteps is not None:
-                        for args in timesteps:
-                            np.savetxt(fhs[args[0]], *args[1:])
-                
+                        for idx, args in enumerate(timesteps):
+                            np.savetxt(fhs[args[1]], *args[2:])
+                            ix, iy = args[0]
+                            #print(args)
+                            ax[0].scatter(ix,iy,s=6,marker='o',c=colors[idx],edgecolors='face');
+                            ax[0].text(ix+100, iy, str(args[1]), color=colors[idx], fontsize='x-small', bbox=dict(facecolor='darkgray', edgecolor=colors[idx], boxstyle='round,pad=0'))
+                            
+                            #ax[0].annotate(str(iGHI), (ix, iy), c=colors[idx])
+ 
+                plt.tight_layout(); 
+                plt.savefig(outpath+day[:8]+'/'+f[-18:-4]+'_features.png')
+                #plt.show()
+                plt.close()
+                            
         p.close()
         p.join()      
 
