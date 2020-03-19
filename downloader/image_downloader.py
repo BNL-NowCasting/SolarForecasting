@@ -161,5 +161,5 @@ if __name__ == "__main__":
             try:
                 saveimage_event()
             except:
-	        msg = traceback.trace_exc()
-	        logger.error( msg )
+                msg = traceback.trace_exc()
+                logger.error( msg )
