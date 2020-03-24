@@ -138,7 +138,10 @@ for day in days:
                 continue                                                #This will get thrown if there's no GHI data and DataY is filled with NaNs
             except IndexError as e:
                 print("Skipping sensor %i, %s" % (sensor, str(e)))
-                continue 
+                continue
+            except FileNotFoundError as e:
+                print("Skipping sensor %i, %s" % (sensor, str(e)))
+                continue
             # DataX[:,1:] = normalize(DataX[:,1:],axis=0);  
             DataY[sensor] = DataY[sensor][mk]                       #take subset to match x values
             timestamp[sensor] = timestamp[sensor][mk]               #take subset to match x values

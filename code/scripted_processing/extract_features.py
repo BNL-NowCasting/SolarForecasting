@@ -125,10 +125,14 @@ if __name__ == "__main__":
             
         print("Extracting features for %s, GHI sensors:\n\t%s" % (day, ("\n\t").join(str(fhs).split(","))))
         
-        p = multiprocessing.Pool(cores_to_use)  
+        p = multiprocessing.Pool(cores_to_use,maxtasksperchild=128)  
         flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day+'*sth'))
         #flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day[:8]+'1511*sth'))
         for f in flist:
+            f_sz = os.path.getsize(f)
+            if f_sz > 2147483648:
+                print("File too large: %s size = %i\n" %(f, f_sz))
+                continue
             with open(f,'rb') as input:
                 #timestamp = (dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S')-dt.datetime(2018,1,1)).total_seconds()
                 timestamp  = localToUTCtimestamp(dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S'), cam_tz)
@@ -143,7 +147,7 @@ if __name__ == "__main__":
                 iys = (0.5 + (y + img.height*np.tan(img.sz)*np.cos(img.saz))/img.pixel_size).astype(np.int32)
                 ixs = (0.5 + (x - img.height*np.tan(img.sz)*np.sin(img.saz))/img.pixel_size).astype(np.int32)
                 
-                features = p.map(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp,outpath+day[:8]] for iGHI in range(len(GHI_loc))])
+                features = p.imap(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp,outpath+day[:8]] for iGHI in range(len(GHI_loc))],chunksize=16)
                 
                 fig,ax=plt.subplots(1,2,sharex=True,sharey=True);
                 ax[0].imshow(img.rgb); 

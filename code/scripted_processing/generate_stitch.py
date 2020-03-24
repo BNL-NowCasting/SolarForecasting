@@ -49,12 +49,13 @@ def stitch(cams, dates, cores_to_use):
                     pkl_dict[pkl[-18:-4]] = {camID:pkl}
 
         print("\n\tUsing %i cores to process %i image times" % (cores_to_use, len(pkl_dict)))
-        p = multiprocessing.Pool(cores_to_use)      
+        p = multiprocessing.Pool(cores_to_use,maxtasksperchild=128)      
         args=[[ymdhms, cam_list] for ymdhms, cam_list in pkl_dict.items()]       
         #for i, _ in enumerate(p.imap_unordered(stitch_MP, args), 0):
         #    sys.stderr.write('\r\t {0:%}'.format(i/len(args)))         
-        p.map(stitch_MP,args)  
+        p.imap(stitch_MP,args,chunksize=16)  
         p.close()
+        p.terminate()   #Added because some workers were hanging, should probably be resolved more elegantly
         p.join()
             
 def stitch_MP(args):
@@ -135,7 +136,7 @@ def stitch_MP(args):
 
 def height(args_list, cores):
 
-    p = multiprocessing.Pool(cores)
+    p = multiprocessing.Pool(cores,maxtasksperchild=128)
     
     for args in args_list:
         imager,neighbors,day=args 
@@ -162,7 +163,7 @@ def height(args_list, cores):
         mp_args=[[args, f] for f in flist]    
         #for i, _ in enumerate(p.imap_unordered(height_MP, mp_args), 0):
         #    sys.stderr.write('\r\t {0:%}'.format(i/len(mp_args)))        
-        p.map(height_MP,mp_args)
+        p.imap(height_MP,mp_args,chunksize=16)
         
     p.close()
     p.join()
@@ -191,7 +192,7 @@ def height_MP(mp_args):
     #if os.path.isfile(tmpfs+f[-18:-10]+'/'+basename+'.hkl') and (~REPROCESS):  ######already processed, skip
     #    return          
     
-    print('Procesing', basename)
+    print('Processing', basename)
     print("Full name: %s" % tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     fpickle = glob.glob(tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     img=None
@@ -336,7 +337,7 @@ if __name__ == "__main__":
                 print('Cannot create directory,',stitch_path+day[:8])
                 continue 
                 
-    p = multiprocessing.Pool(len(cid_flat)) 
+    #p = multiprocessing.Pool(len(cid_flat)) 
     for day in days:
        if not os.path.isdir(tmpfs+day[:8]):
            try:
@@ -348,8 +349,8 @@ if __name__ == "__main__":
        print("Running Preprocessing/Height for: %s" % day)
        args=[[cameras[camID], [cameras[cmr] for cmr in height_group[camID]], day] for camID in cid_flat]
        height(args, cores_to_use)  
-    p.close()
-    p.join()
+    #p.close()
+    #p.join()
     
     stitch(camIDs, days, cores_to_use)
             
