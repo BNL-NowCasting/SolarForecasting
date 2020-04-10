@@ -58,7 +58,7 @@ then
     # but allows other versions of python to be installed as separate envs.
     # officially only python 2.7, 3.6 and 3.7 are support, but it seemed to create
     # a python 3.5 env. with this:
-    conda create -n py35 python=3.5 anaconda
+    conda create -y -n py35 python=3.5 anaconda
     conda activate py35
     conda init # sets env. in .bashrc
     # should log out or start new shell here to refresh env.
@@ -67,7 +67,7 @@ then
     # use:
     # conda info --envs
     # to verify active env.
-    conda install ephem
+    conda install -y ephem
     # pyFFTW doesn't exist at anaconda, try pip instead.
     # upgrade pip
     pip install --upgrade pip
