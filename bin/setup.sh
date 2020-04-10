@@ -1,26 +1,38 @@
 #!/bin/bash
-# better to do this in a python module that reads the dirs from the config file.
+# source:
+# wget https://raw.githubusercontent.com/BNL-NowCasting/SolarForecasting/master/bin/setup.sh
+# setup solar nowcasting system
 #
-# make sure user nowcast exists
-# also need group nowcast
-getent group nowcast >/dev/null || sudo groupadd nowcast
-getent passwd nowcast >/dev/null || sudo useradd -c "camera nologin" -s /sbin/nologin -g nowcast nowcast
-# Install everything relative to nowcast's home
-NOWCASTHOME=`getent passwd nowcast|cut -d: -f 6`
+function die() {
+    echo "$@" 2>&1
+    echo "usage: " 2>&1
+    echo "cd to user writable root install directory" 2>&1
+    echo "if desired use symlinks to other file-systems" 2>&1
+    exit 1
+}
+function confirm () {
+    echo -n "$@ y[n]: "
+    read ANS
+    case "$ANS" in
+        [yY]*) return 0;;
+        *) return 1;;
+    esac
+}
+
+[ $EUID -eq 0 ] && die "do not run as root"
+[ $USER = "nowcast" ] || confirm "recommend running as user 'nowcast', do you want to continue as user '$USER'" || exit 1
+#
+# Install everything relative CWD
+NOWCASTHOME=`pwd`
+# make sure it is writable
+[ -w "${NOWCASTHOME}" ] || die "${NOWCASTHOME} is not writable"
 # create data dirs
 : ${DATAROOT="${NOWCASTHOME}/data"}
 declare -a SITES
 SITES=( bnl alb )
 for S in ${SITES[@]}; do
     SITE="${DATAROOT}${S}"
-    sudo mkdir -p ${SITE}
-    sudo chown nowcast:nowcast ${SITE}
-done
-# from here on in everything shoud run as user nowcast, best to split of into
-# separate script
-sudo -u nowcast bash <<EOF
-for S in ${SITES[@]}; do
-    SITE="${DATAROOT}${S}"
+    mkdir -p ${SITE}
     chmod 2775 ${SITE}
     mkdir -p ${SITE}/{cache,latest,images}
     mkdir -p ${SITE}/log
@@ -29,8 +41,6 @@ done
 # there may be more dirs to set up, but some may also be created within the python
 # scripts that need them.
 #
-# Create a release of the latest commit in the HistoricProcessing-dev branch
-
 #
 # Install anaconda version of python 3.6 in /opt/anaconda3, if it doesn't exist
 : ${CONDADIR="${NOWCASTHOME/anaconda3"}
@@ -39,9 +49,13 @@ done
 if [ ! -x "${CONDA}" ]
 then
     mkdir -p $DOWNLOAD
-    cd $DOWNLOAD
-    wget https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh
-    bash ./Anaconda3-2020.02-Linux-x86_64.sh -b -p ${CONDADIR}
+    ( cd $DOWNLOAD
+      wget https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh 
+      # get alpha release in dev branch
+      wget https://github.com/BNL-NowCasting/SolarForecasting/archive/v1.0.1-alpha.tar.gz
+    )
+    tar xzf ${DOWNLOAD}v1.0.1-alpha.tar.gz
+    bash ${DOWNLOAD}/Anaconda3-2020.02-Linux-x86_64.sh -b -p ${CONDADIR}
     . ${CONDADIR/bin/activate}
     # update to latest version of conda
     conda update -n base -c defaults -y conda
@@ -65,4 +79,3 @@ then
     pip install pyFFTW
 fi
 
-EOF
