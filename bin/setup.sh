@@ -44,17 +44,14 @@ done
 : ${CONDADIR="${NOWCASTHOME}/anaconda3"}
 : ${CONDA:="${CONDADIR}/bin/conda"}
 : ${DOWNLOAD:="${NOWCASTHOME}/software"}
+mkdir -p $DOWNLOAD
 if [ ! -x "${CONDA}" ]
 then
-    mkdir -p $DOWNLOAD
     ( cd $DOWNLOAD
-      wget https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh 
-      # get alpha release in dev branch
-      wget https://github.com/BNL-NowCasting/SolarForecasting/archive/v1.0.1-alpha.tar.gz
+      wget -nv https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh 
     )
-    tar xzf ${DOWNLOAD}/v1.0.1-alpha.tar.gz
     bash ${DOWNLOAD}/Anaconda3-2020.02-Linux-x86_64.sh -b -p ${CONDADIR}
-    . ${CONDADIR/bin/activate}
+    . ${CONDADIR}/bin/activate
     # update to latest version of conda
     conda update -n base -c defaults -y conda
     # the latest conda installs with python 3.7 by default in "base" environment,
@@ -76,3 +73,9 @@ then
     pip install --upgrade pip
     pip install pyFFTW
 fi
+
+( cd $DOWNLOAD
+    # get alpha release in dev branch
+    wget -nv https://github.com/BNL-NowCasting/SolarForecasting/archive/v1.0.1-alpha.tar.gz
+)
+tar xzf ${DOWNLOAD}/v1.0.1-alpha.tar.gz
