@@ -6,7 +6,7 @@
 function die() {
     echo "$@" 2>&1
     echo "usage: " 2>&1
-    echo "cd to user writable root install directory" 2>&1
+    echo "cd to user writable install directory" 2>&1
     echo "if desired use symlinks to other file-systems" 2>&1
     exit 1
 }
@@ -27,10 +27,9 @@ NOWCASTHOME=`pwd`
 # make sure it is writable
 [ -w "${NOWCASTHOME}" ] || die "${NOWCASTHOME} is not writable"
 # create data dirs
-: ${DATAROOT="${NOWCASTHOME}/data"}
-declare -a SITES
-SITES=( bnl alb )
-for S in ${SITES[@]}; do
+: ${DATAROOT="${NOWCASTHOME}/data/"}
+for S in bnl alb
+do
     SITE="${DATAROOT}${S}"
     mkdir -p ${SITE}
     chmod 2775 ${SITE}
@@ -41,9 +40,8 @@ done
 # there may be more dirs to set up, but some may also be created within the python
 # scripts that need them.
 #
-#
-# Install anaconda version of python 3.6 in /opt/anaconda3, if it doesn't exist
-: ${CONDADIR="${NOWCASTHOME/anaconda3"}
+# Install anaconda version of python 3.6 in /opt/anaconda3, if it does not exist
+: ${CONDADIR="${NOWCASTHOME}/anaconda3"}
 : ${CONDA:="${CONDADIR}/bin/conda"}
 : ${DOWNLOAD:="${NOWCASTHOME}/software"}
 if [ ! -x "${CONDA}" ]
@@ -54,7 +52,7 @@ then
       # get alpha release in dev branch
       wget https://github.com/BNL-NowCasting/SolarForecasting/archive/v1.0.1-alpha.tar.gz
     )
-    tar xzf ${DOWNLOAD}v1.0.1-alpha.tar.gz
+    tar xzf ${DOWNLOAD}/v1.0.1-alpha.tar.gz
     bash ${DOWNLOAD}/Anaconda3-2020.02-Linux-x86_64.sh -b -p ${CONDADIR}
     . ${CONDADIR/bin/activate}
     # update to latest version of conda
@@ -78,4 +76,3 @@ then
     pip install --upgrade pip
     pip install pyFFTW
 fi
-
