@@ -127,12 +127,16 @@ for day in days:
                 DataY[sensor] = np.hstack(DataY[sensor])                #stack time series for persistence horizontally
                 timestamp[sensor] = np.hstack(timestamp[sensor])        #stack timestamps horizontally
 
+                #print( DataX[sensor] )
             #print(DataY[sensor], DataX[sensor][:,0])
             #try:
                 mk = (DataY[sensor] > 0) & (DataX[sensor][:,0] > 0)     #create boolean list where persistence value and timestamp are both >0
                 DataX[sensor] = DataX[sensor][mk]                       #take subset selected above
+                # cf2 column (was 15 but we dropped the leadminutes column already) 
+                cld_frac = np.copy(DataX[sensor][:,14])
+
                 DataX[sensor][:,0]/=400;                                #scale GHI by 400?  (note: data in *.npz is already scaled?)
-                DataX[sensor][:,1:] = scale(DataX[sensor][:,1:]);       #normalize other x values
+                DataX[sensor][:,1:-1] = scale(DataX[sensor][:,1:-1]);       #normalize other x values
             except ValueError as e:
                 print("Skipping sensor %i, %s" % (sensor, str(e)))
                 continue                                                #This will get thrown if there's no GHI data and DataY is filled with NaNs
@@ -152,9 +156,18 @@ for day in days:
             with open('optimal_model{:02d}.mod99'.format(forward),'rb') as fmod:
                 SVR_linear = pickle.load(fmod)                      #Load model
 
-            testY_hat = SVR_linear.predict(DataX[sensor])           #Run model
+            # until a model is trained using the max_ghi column 
+            #  - (which requires processing another month) -
+            # just drop that column before predicting
+            testY_hat = SVR_linear.predict(DataX[sensor][:,0:-1])           #Run model
             testY_per = DataX[sensor][:,0]*400                      #Create persistence model (and rescale)
-
+            max_ghi = DataX[sensor][:,-1]
+            # use the theoretical maximum ghi if the sky is clear
+            testY_hat[cld_frac < 0.05] = max_ghi[cld_frac < 0.05]
+            # use a persistence estimate if the sky is totally overcast 
+            # since nothing is liable to change
+            # eventually, we'll want to do something else so we don't need ghi sensor data
+            testY_hat[cld_frac > 0.95] = testY_per[cld_frac > 0.95]
 
             #ts_offset = datetime(2018,1,1)                          #fix offset
             #ts_offset.replace(tzinfo=timezone.utc)
@@ -208,7 +221,12 @@ for day in days:
             #except Exception as e:
             #    raise
             #    print("Exception: %s" % str(e))
-            
+        if not len(MAE_period):
+            MAE += [np.nan]
+            MSE += [np.nan]
+            MAE2 += [np.nan]
+            MSE2 += [np.nan]
+            continue    
         MAE += [sum(MAE_period)/len(MAE_period)]
         MSE += [sum(MSE_period)/len(MSE_period)]
         MAE2 += [sum(MAE2_period)/len(MAE2_period)]

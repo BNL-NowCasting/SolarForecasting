@@ -18,7 +18,7 @@ BND_WIN = 20;
 BND_RED_THRESH, BND_RBR_THRESH  = 2/1.5, 0.012/2
 DRED_THRESH, DRBR_THRESH = 150, 157
 STD_RED_THRESH, STD_RBR_THRESH = 1.2, 0.012
-static_mask_path='/home/dhuang3/ldata/masks/'  
+static_mask_path='/home/dhuang3/ldata/masks/'
 
 coordinate = {'HD2C':[40.87203321,-72.87348295],'HD815_2':[40.87189059,-72.873687],\
                'HD490':[40.865968816,-72.884647222], 'HD1B':[40.8575056,-72.8547344], \
@@ -255,7 +255,6 @@ def cloud_mask(cam,img,img0):
     rbr[rbr>0.08]=0.08; rbr[rbr<-0.08]=-0.08;
     rbr=(rbr+0.08)*1587.5+1;    ####scale rbr to 0-255
     mblue=np.nanmean(img.rgb[(cos_g<0.7) & (r1>0) & (rbr_raw<-0.01),2].astype(np.float32));
-    
     err = r1-r0; err-=np.nanmean(err)    
     dif=st.rolling_mean2(abs(err),100)
     err=st.rolling_mean2(err,5)
@@ -267,26 +266,25 @@ def cloud_mask(cam,img,img0):
     cld |= (rbr>180);   ####clouds with high rbr
     cld[cos_g>0.7]|=(img.rgb[cos_g>0.7,2]<mblue) & (rbr_raw[cos_g>0.7]>-0.01);  #####dark clouds
     cld &= dif>3
-   
     total_pixel=np.sum(r1>0)
 
     min_size=50*img.nx/1000
     cld=remove_small_objects(cld, min_size=min_size, connectivity=4, in_place=True)
     sky=remove_small_objects(sky, min_size=min_size, connectivity=4, in_place=True)
+
+    ncld=np.sum(cld); nsky=np.sum(sky)
     
-    ncld=np.sum(cld); nsky=np.sum(sky); 
-#     print(ncld/total_pixel,nsky/total_pixel);
+    # these threshholds don't strictly need to match those used in forecasting / training
     if (ncld+nsky)<=1e-2*total_pixel:
         return;
-    elif (ncld < nsky) & (ncld<=2e-2*total_pixel):   #####shortcut for clear or totally overcast conditions        
+    elif (ncld < nsky) and (ncld<=5e-2*total_pixel):   #####shortcut for clear or totally overcast conditions        
         img.cm=cld.astype(np.uint8)
         img.layers=1
         return
-    elif (ncld > nsky) & (nsky<=2e-2*total_pixel):   
+    elif (ncld > nsky) and (nsky<=5e-2*total_pixel):   
         img.cm=((~sky)&(r1>0)).astype(np.uint8)
         img.layers=1
         return       
-    
     max_score=-np.Inf
     x0=-0.15; 
     ncld,nsky=0.25*nsky+0.75*ncld,0.25*ncld+0.75*nsky
