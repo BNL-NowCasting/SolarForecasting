@@ -61,9 +61,10 @@ then
     conda create -y -n py35 python=3.5 anaconda
     conda activate py35
     conda init # sets env. in .bashrc
+    # activate py35 by default in all interactive bash shells
+    echo "conda activate py35" >> $NOWCASTHOME/.bashrc
     # should log out or start new shell here to refresh env.
     . $NOWCASTHOME/.bashrc
-    conda activate py35
     # use:
     # conda info --envs
     # to verify active env.
@@ -72,6 +73,7 @@ then
     # upgrade pip
     pip install --upgrade pip
     pip install pyFFTW
+    pip install pysolar
 fi
 
 ( cd $DOWNLOAD
