@@ -18,7 +18,8 @@ BND_WIN = 20;
 BND_RED_THRESH, BND_RBR_THRESH  = 2/1.5, 0.012/2
 DRED_THRESH, DRBR_THRESH = 150, 157
 STD_RED_THRESH, STD_RBR_THRESH = 1.2, 0.012
-static_mask_path='/home/dhuang3/ldata/masks/'
+
+#static_mask_path='/home/dhuang3/ldata/masks/'  
 
 coordinate = {'HD2C':[40.87203321,-72.87348295],'HD815_2':[40.87189059,-72.873687],\
                'HD490':[40.865968816,-72.884647222], 'HD1B':[40.8575056,-72.8547344], \
@@ -57,7 +58,7 @@ def UTCtimestampTolocal(ts, local_tz):
 
 class camera:
     ###variable with the suffix '0' means it is for the raw, undistorted image
-    def __init__(self, camID, max_theta=70,nx=2000,ny=2000,cam_tz=pytz.timezone("UTC")):      
+    def __init__(self, camID, max_theta=70,nx=2000,ny=2000,cam_tz=pytz.timezone("UTC"),static_mask_path=None):      
         #### size of the undistorted image 
         if nx>=2000:
             nx=ny=2000
