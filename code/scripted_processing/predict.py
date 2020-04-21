@@ -45,7 +45,12 @@ try:
 
     #lead_minutes=[1,3,5,10,15,30,45]; 
     #sensors = np.arange(99,100)
-    sensors = le(cp["forecast"]["sensors"])
+    
+    try:
+        sensors = le(cp["forecast"]["sensors"])
+    except Exception:
+        GHI_Coor = le(cp["GHI_sensors"]["GHI_Coor"])    #if sensor list isn't provided, forecast for all GHI points
+        sensors = range(0,len(GHI_Coor))
     
     try:
         forecast_timezone=pytz.timezone(cp["forecast"]["forecast_timezone"])
@@ -101,13 +106,13 @@ for day in days:
                 
                 x = x[x[:,0]==forward];                                 #Take all rows where forecast period == forward
                 
-                if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
-                    with np.load(GHI_path+day[:6]+'/GHI_'+str(99)+'.npz') as data:       #
-                        ty, y = data['timestamp'], data['ghi']                  #
-                else:                                                           #
-                    with np.load(GHI_path+day[:6]+'/GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
-                        ty, y = data['timestamp'], data['ghi']                  # < ORIGINAL
-                        #ty -= 3600 #Add an hour (testing only!)
+                #if sensor == 26:                                                # Temp added for 2018-09-22 test with location 99
+                #    with np.load(GHI_path+day[:6]+'/GHI_'+str(99)+'.npz') as data:       #
+                #        ty, y = data['timestamp'], data['ghi']                  #
+                #else:                                                           #
+                with np.load(GHI_path+day[:6]+'/GHI_'+str(sensor)+'.npz') as data:   # < ORIGINAL
+                    ty, y = data['timestamp'], data['ghi']                           # < ORIGINAL
+                    #ty -= 3600 #Add an hour (testing only!)
                 
                 x = x[x[:,1]<=ty[-1]]                                   #Take all "feature" elements where timestamp is less than last GHI timestamp
                 tx=x[:,1].copy();                                       #Create copy of feature timestamps

@@ -192,6 +192,7 @@ if __name__ == "__main__":
         # tmpfs='/dev/shm/'
         tmpfs=le(cp["paths"]["tmpfs"])
         stitch_path=le(cp["paths"]["stitch_path"])
+        static_mask_path=le(cp["paths"]["static_mask_path"])
         
         try:
             cam_tz=pytz.timezone(cp["cameras"]["cam_timezone"])
@@ -212,7 +213,7 @@ if __name__ == "__main__":
 
     cameras={};
     for camID in all_cams:
-        cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000,cam_tz=cam_tz) 
+        cameras[camID] = cam.camera(camID,max_theta=70,nx=1000,ny=1000,cam_tz=cam_tz,static_mask_path=static_mask_path) 
 
     lon0,lat0=cameras['HD5A'].lon,cameras['HD5B'].lat
     x_cams=(cameras['HD1B'].lon-lon0)*deg2km*np.cos(cameras['HD1B'].lat*np.pi/180)

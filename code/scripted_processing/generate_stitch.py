@@ -101,6 +101,8 @@ def stitch_MP(args):
         plt.tight_layout();
 #                plt.show();
         plt.savefig(stitch_path+ymdhms[:8]+'/'+ymdhms+'.png'); plt.close(); 
+    
+    return
 
 
 

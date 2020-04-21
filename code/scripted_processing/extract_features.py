@@ -14,7 +14,7 @@ import pytz
 SAVE_FIG=True
 deg2km=6367*np.pi/180
 deg2rad=np.pi/180
-WIN_SIZE = 50
+WIN_SIZE = 50  #half-width of bounding box integrated per GHI point
 INTERVAL = 0.5 ####0.5 min or 30 sec
 
 def extract_MP(args):
@@ -29,8 +29,8 @@ def extract_MP(args):
         rgb = np.reshape(rgb0[slc], (-1,3));
         #print(rgb)
         R_mean1, G_mean1, B_mean1 = np.nanmean(rgb,axis=0);
-        if np.isnan(R_mean1):
-            print("\tAt timestamp %s, sensor %i, np.isnan(R_mean1)==true" % (timestamp,iGHI))
+        if np.isnan(R_mean1) or (iy0 < 0 or ix0 < 0):
+        #    print("\tAt timestamp %s, sensor %i, np.isnan(R_mean1)==true" % (timestamp,iGHI))
             return
         R_min1, G_min1, B_min1 = np.nanmin(rgb,axis=0);
         R_max1, G_max1, B_max1 = np.nanmax(rgb,axis=0);
@@ -45,7 +45,7 @@ def extract_MP(args):
             if img.cm[slc].size >= 1:
                 rgb = np.reshape(rgb0[slc], (-1,3));
                 R_mean2,G_mean2,B_mean2 = np.nanmean(rgb,axis=0);
-                if np.isnan(R_mean2):
+                if np.isnan(R_mean2) or (iy < 0 or ix < 0):
                     #return
                     continue
                 R_min2,G_min2,B_min2 = np.nanmin(rgb,axis=0);
@@ -54,11 +54,13 @@ def extract_MP(args):
                 cf2 = np.sum(img.cm[slc]) / np.sum(rgb[:,0]>0);
                 tmp = np.asarray([lead_minutes[ilt],timestamp,img.height,img.sz,\
                         cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,\
-                        cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2],dtype=np.float32) 
+                        cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2],dtype=np.float64) 
                 tmp=np.reshape(tmp,(1,-1));
                 
+                #print("\t\tTimestamp: %li \tiGHI: %i \tlead_time: %i \tlead_minutes: %i, win: %s" % (timestamp, iGHI, lead_time, lead_minutes[ilt], str([max(0,iy-WIN_SIZE), min(ny-1,iy+WIN_SIZE), max(0,ix-WIN_SIZE), min(nx-1,ix+WIN_SIZE)])))
                 plt_data = (ix, iy)
-                out_args += [(plt_data,iGHI,tmp,', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))]      
+                plt0_data = (ix0, iy0)
+                out_args += [(plt0_data,plt_data,iGHI,tmp,', '.join(['%g']+['%f']+['%g']*(tmp.size-2)))]      
                 
         return out_args
 
@@ -91,6 +93,8 @@ if __name__ == "__main__":
         lead_minutes=le(cp["forecast"]["lead_minutes"])
         lead_steps=[lt/INTERVAL for lt in lead_minutes]
         days=le(cp["forecast"]["days"])
+        
+        print("lead_minutes: %s\n lead_steps: %s\n" % (lead_minutes, lead_steps))
      
         try:
             cam_tz=pytz.timezone(cp["cameras"]["cam_timezone"])
@@ -121,13 +125,16 @@ if __name__ == "__main__":
     
         fhs=[]
         for iGHI in range(len(GHI_loc)):        
-            fhs += [open(outpath+day[:8]+'/GHI'+str(iGHI+1)+'.csv','wb')]
+            fhs += [open(outpath+day[:8]+'/GHI'+str(iGHI)+'.csv','wb')]
             
         print("Extracting features for %s, GHI sensors:\n\t%s" % (day, ("\n\t").join(str(fhs).split(","))))
         
         p = multiprocessing.Pool(cores_to_use,maxtasksperchild=128)  
         flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day+'*sth'))
         #flist = sorted(glob.glob(stitch_path+day[:8]+'/'+day[:8]+'1511*sth'))
+        
+        forecast_stats = np.zeros((len(GHI_loc), len(lead_minutes)))
+                        
         for f in flist:
             f_sz = os.path.getsize(f)
             if f_sz > 2147483648:
@@ -153,25 +160,33 @@ if __name__ == "__main__":
                 ax[0].imshow(img.rgb); 
                 ax[1].imshow(img.cm);
                 colors=matplotlib.cm.rainbow(np.linspace(1,0,len(lead_minutes)))
-                
-                for timesteps in features:
-                    if timesteps is not None:
-                        for idx, args in enumerate(timesteps):
-                            np.savetxt(fhs[args[1]], *args[2:])
-                            ix, iy = args[0]
-                            #print(args)
-                            ax[0].scatter(ix,iy,s=6,marker='o',c=colors[idx],edgecolors='face');
-                            ax[0].text(ix+100, iy, str(args[1]), color=colors[idx], fontsize='x-small', bbox=dict(facecolor='darkgray', edgecolor=colors[idx], boxstyle='round,pad=0'))
+                               
+                for iGHI in features:
+                    if iGHI is not None:
+                        for idx, args in enumerate(iGHI):
+                            #print("Timestamp: %li \tiGHI: %s \tidx: %s \targs[2:]: %s" % (timestamp, iGHI, idx, args[2:]))
+                            idx_GHI = args[2]
+                            #On first index of a new point, also plot the "base" location and setup emtpy stats
+                            if idx == 0:
+                                ix, iy = args[0]
+                                ax[0].scatter(ix,iy,s=6,marker='x',c='black',edgecolors='face');
+                                ax[0].text(ix+25, iy, str(idx_GHI), color='darkgray', fontsize='x-small')
                             
-                            #ax[0].annotate(str(iGHI), (ix, iy), c=colors[idx])
- 
+                            np.savetxt(fhs[idx_GHI], *args[3:])
+                            forecast_stats[idx_GHI,idx] += 1
+                            ix, iy = args[1]
+                            ax[0].scatter(ix,iy,s=6,marker='o',c=colors[idx],edgecolors='face');
+                            ax[0].text(ix+25, iy, str(idx_GHI), color=colors[idx], fontsize='x-small', bbox=dict(facecolor='darkgray', edgecolor=colors[idx], boxstyle='round,pad=0'))
+
                 plt.tight_layout(); 
                 plt.savefig(outpath+day[:8]+'/'+f[-18:-4]+'_features.png')
                 #plt.show()
                 plt.close()
-                            
+                                           
         p.close()
-        p.join()      
-
+        p.join()
+        
         for fh in fhs:
-            fh.close()       
+            fh.close()
+
+        np.savetxt(outpath+day[:8]+'/forecast_stats.csv', forecast_stats, fmt="%i", delimiter=',')
