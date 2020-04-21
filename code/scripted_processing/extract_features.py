@@ -7,9 +7,14 @@ import pickle
 import stat_tools as st
 import multiprocessing
 import datetime as dt
+from datetime import timedelta
 import configparser
 from ast import literal_eval as le
 import pytz
+import pvlib
+from pvlib import clearsky, atmosphere, solarposition
+from pvlib.location import Location
+import pandas as pd
 
 SAVE_FIG=True
 deg2km=6367*np.pi/180
@@ -18,10 +23,11 @@ WIN_SIZE = 50  #half-width of bounding box integrated per GHI point
 INTERVAL = 0.5 ####0.5 min or 30 sec
 
 def extract_MP(args):
-    iGHI,iy0,ix0,ny,nx,img,timestamp,outpath = args
+    iGHI,iy0,ix0,ny,nx,img,timestamp,outpath,latlon = args
+    loc = Location( latlon[0], latlon[1], 'UTC' )
 #for iGHI in range(len(GHI_loc)):
     #iy0, ix0 = iys[iGHI], ixs[iGHI]
-    #print("\tExtracting t=%s for %i: %i, %i" % (timestamp,iGHI,iy0,ix0))
+    #print("\tExtracting t=%s for %i: %i, %i from %i, %i" % (timestamp,iGHI,iy0,ix0,ny,nx))
     slc=np.s_[max(0,iy0-WIN_SIZE):min(ny-1,iy0+WIN_SIZE),max(0,ix0-WIN_SIZE):min(nx-1,ix0+WIN_SIZE)]
     if img.cm[slc].size >= 1:
         rgb0 = img.rgb.astype(np.float32); 
@@ -37,6 +43,12 @@ def extract_MP(args):
         RBR1 = (R_mean1 - B_mean1) / (R_mean1 + B_mean1)
         cf1 = np.sum(img.cm[slc]) / np.sum(rgb[:,0]>0);
         
+        dt_timestamp = dt.datetime.fromtimestamp( timestamp,tz=pytz.timezone("UTC") )
+        times = pd.DatetimeIndex([dt_timestamp + timedelta(minutes=lm+60) for lm in lead_minutes])
+        #print( times )
+        ghis = loc.get_clearsky( times )
+        max_ghis = list(loc.get_clearsky(times)['ghi'])
+
         out_args = []
         for ilt, lead_time in enumerate(lead_steps):
             iy = int(0.5 + iy0 + img.v[0][0]*lead_time); 
@@ -52,9 +64,11 @@ def extract_MP(args):
                 R_max2,G_max2,B_max2 = np.nanmax(rgb,axis=0);
                 RBR2 = (R_mean2 - B_mean2) / (R_mean2 + B_mean2)
                 cf2 = np.sum(img.cm[slc]) / np.sum(rgb[:,0]>0);
-                tmp = np.asarray([lead_minutes[ilt],timestamp,img.height,img.sz,\
-                        cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,\
-                        cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2],dtype=np.float64) 
+
+                tmp = np.asarray([lead_minutes[ilt],timestamp,img.height,img.sz,
+                        cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,
+                        cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2,
+                        max_ghis[ilt]],dtype=np.float64) 
                 tmp=np.reshape(tmp,(1,-1));
                 
                 #print("\t\tTimestamp: %li \tiGHI: %i \tlead_time: %i \tlead_minutes: %i, win: %s" % (timestamp, iGHI, lead_time, lead_minutes[ilt], str([max(0,iy-WIN_SIZE), min(ny-1,iy+WIN_SIZE), max(0,ix-WIN_SIZE), min(nx-1,ix+WIN_SIZE)])))
@@ -144,17 +158,17 @@ if __name__ == "__main__":
                 #timestamp = (dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S')-dt.datetime(2018,1,1)).total_seconds()
                 timestamp  = localToUTCtimestamp(dt.datetime.strptime(f[-18:-4], '%Y%m%d%H%M%S'), cam_tz)
                 
-                print(timestamp, f)
                 img=pickle.load(input);
                 if not np.isfinite(img.height):
                     continue
                 ny,nx = img.cm.shape
-        #         print(img.time,img.lon,img.lat,img.sz,img.saz,img.pixel_size,img.v,img.height);
                 y, x = (img.lat-GHI_loc[:,0])*deg2km, (GHI_loc[:,1]-img.lon)*deg2km*np.cos(GHI_loc[0,0]*deg2rad);
                 iys = (0.5 + (y + img.height*np.tan(img.sz)*np.cos(img.saz))/img.pixel_size).astype(np.int32)
                 ixs = (0.5 + (x - img.height*np.tan(img.sz)*np.sin(img.saz))/img.pixel_size).astype(np.int32)
+#                iys = (0.5 + (y)/img.pixel_size).astype(np.int32)
+#                ixs = (0.5 + (x)/img.pixel_size).astype(np.int32)
                 
-                features = p.imap(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp,outpath+day[:8]] for iGHI in range(len(GHI_loc))],chunksize=16)
+                features = p.imap(extract_MP,[[iGHI,iys[iGHI],ixs[iGHI],ny,nx,img,timestamp,outpath+day[:8], GHI_loc[iGHI]] for iGHI in range(len(GHI_loc))],chunksize=16)
                 
                 fig,ax=plt.subplots(1,2,sharex=True,sharey=True);
                 ax[0].imshow(img.rgb); 

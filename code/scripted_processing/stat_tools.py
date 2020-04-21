@@ -1,6 +1,8 @@
 import numpy as np
 import warnings 
+from scipy.ndimage.filters import uniform_filter
 import matplotlib.pyplot as plt
+import rolling
 
 def nans(shape, dtype=np.float32):
     a = np.empty(shape, dtype)
@@ -44,11 +46,22 @@ def bin_average(z, x, xbin, stdout=None,interpolate=False,numout=None):
             if numout is not None:
                 numout[i]=sum(z[foo]>-1e30);
     if interpolate:
-        from scipy import interpolate
         flag=np.isnan(zout);
-        f = interpolate.interp1d(xbin[~flag], zout[~flag], bounds_error=False);
-        zout[flag]=f(xbin[flag]);
+        coeff=np.polyfit(xbin[~flag], zout[~flag], 1)
+        zout[flag]=np.polyval(coeff,xbin[flag]);
     return zout;        
+
+def bin_average_reg(z, x, xbin, interpolate=False,numout=None):
+    nx=len(xbin)-1;
+    dx=xbin[1]-xbin[0];
+    
+    ix=(0.5+(x-xbin[0])/dx).astype(int)
+    valid=(ix>=0) & (ix<nx) 
+    count=np.bincount(ix[valid]);
+    s=np.bincount(ix[valid],weights=z[valid])
+    zout=np.zeros(nx)+np.nan;
+    zout[:len(s)]=(s/count);  
+    return zout; 
 
 def bin_average2(z, x, y, xbin, ybin, interpolate=False,numout=None):
     nx=len(xbin); ny=len(ybin);
@@ -124,12 +137,12 @@ def fast_bin_average2(z,weights):
     zout.ravel()[:len(s)]=(s/count);             
     return zout; 
     
-def block_average2(y, N=2, f=0.02):
+def block_average2(y0, N=2, f=0.02):
 #    result=block_average(y,N=N,idim=0);
 #    result=block_average(result,N=N,idim=1);
-    ny,nx=y.shape;
-    y=y[:int(ny/N)*N,:int(nx/N)*N];
-    y=y.reshape(ny/N,N,nx/N,N);
+    ny,nx=y0.shape[:2];
+    y=y0[:(ny//N)*N,:(nx//N)*N];
+    y=y.reshape(ny//N,N,nx//N,N,-1);
     yn=~np.isnan(y);
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning);
@@ -138,92 +151,118 @@ def block_average2(y, N=2, f=0.02):
         result[count<f*N*N]=np.nan;
     return result    
 
-def rolling_mean(x, N, ignore=None): 
+def rolling_mean(x, N, ignore=None, fill_nan=False): 
     N2=N//2; N3=N-N2-1;
-    if ignore==None or np.isnan(ignore):
-        x=np.insert(x,[0]*(N2+1)+[len(x)]*N3,np.nan)        
-        flag = np.isnan(x);
-    else:
-#         x=np.insert(x,0,ignore)
-        x=np.insert(x,[0]*(N2+1)+[len(x)]*N3,ignore)
-        flag = (x==ignore);    
-    x[flag] = 0;    
+    if ignore is None:
+        ignore=np.nan;
+    elif ~np.isnan(ignore) and ignore!=0 : 
+        x[x==0]=np.inf;
+    x=np.insert(x,[0]*(N2+1)+[len(x)]*N3,0)
+    flag = (x==ignore) | (np.isnan(x)) | (x==0);    
+    x[flag | (x==np.inf)] = 0;    
     cumn = np.cumsum(~flag);
     csum = np.cumsum(x) 
     
     res=(csum[N:]-csum[:-N])/(cumn[N:] - cumn[:-N]) 
-#     if N==2:
-#         res[N2:]=(csum[N:] - csum[:-N]) / (cumn[N:] - cumn[:-N]) 
-#     else:    
-#         res[N2:-N3]=(csum[N:] - csum[:-N]) / (cumn[N:] - cumn[:-N]) 
-    res[flag[N2+1:-N3]]=ignore;
+    if not fill_nan:
+        res[flag[N2+1:-N3]]=ignore;
 
     return res
 
-def rolling_mean2(x, N, ignore=None):
-    N2=N//2; N3=N-N2-1;
-    if ignore is None or np.isnan(ignore):
-        ignore = np.nan;
-        x = np.insert(np.insert(x, [0]*(N2+1)+[x.shape[1]]*N3, 0,axis=1), [0]*(N2+1)+[x.shape[0]]*N3, 0,axis=0);
-        mask_ignore = np.isnan(x);
-    else:
-        x = np.insert(np.insert(x, [0]*(N2+1)+[x.shape[1]]*N3, 0,axis=1), [0]*(N2+1)+[x.shape[0]]*N3, 0,axis=0);
-        mask_ignore = (x==ignore);  
-        
-    x[mask_ignore] = 0; 
-    cumn = ~mask_ignore; cumn = cumn.cumsum(0).cumsum(1);     
-    csum = x.astype(float).cumsum(0).cumsum(1);  
+def rolling_mean2(x0, N, ignore=None, fill_nan=False):    
+    x=x0.astype(np.float32);
+    flag=~np.isfinite(x)    
+    if ignore is None:
+        pass;        
+    elif isinstance(ignore,np.ndarray):
+        flag |= ignore;        
+    elif ignore<np.Inf:
+        flag |= (x==ignore);
+    x[flag]=0
+
+    res=rolling.rolling_mean2(x,(~flag).astype(np.uint8),N); 
     
-    cnt=(cumn[N:,N:]-cumn[N:,:-N]-cumn[:-N,N:]+cumn[:-N,:-N]).astype(float); cnt[cnt<=0]=np.nan;
-    res=(csum[N:,N:]-csum[N:,:-N]-csum[:-N,N:]+csum[:-N,:-N]) / cnt; 
-#     plt.figure(); plt.imshow(res)
-    res[mask_ignore[N2+1:-N3,N2+1:-N3]]=ignore;
+#     cumn = (~flag).cumsum(0).cumsum(1);     
+#     csum = x.cumsum(0).cumsum(1);  
+#     
+#     res=np.empty(x.shape)
+#     N2=N//2; N3=N-N2-1;   
+#     res[:N2+1,:N2+1] = csum[N3:N,N3:N]/(cumn[N3:N,N3:N])
+#     res[:N2+1,N2+1:-N3] = (csum[N3:N,N:]-csum[N3:N,:-N])/(cumn[N3:N,N:]-cumn[N3:N,:-N])
+#     res[N2+1:-N3,:N2+1] = (csum[N:,N3:N]-csum[:-N,N3:N])/(cumn[N:,N3:N]-cumn[:-N,N3:N])
+#     res[N2+1:-N3,N2+1:-N3] = (csum[N:,N:]+csum[:-N,:-N]-csum[N:,:-N]-csum[:-N,N:])/(cumn[N:,N:]+cumn[:-N,:-N]-cumn[N:,:-N]-cumn[:-N,N:])
+#     res[-N3:,-N3:]=(csum[-1,-1]+csum[-N:-N2-1,-N:-N2-1]-csum[-1,-N:-N2-1]-csum[-N:-N2-1,-1][:,np.newaxis]) /  \
+#                     (cumn[-1,-1]+cumn[-N:-N2-1,-N:-N2-1]-cumn[-1,-N:-N2-1]-cumn[-N:-N2-1,-1][:,np.newaxis])
+#     res[-N3:,N2+1:-N3]=(csum[-1,N:]+csum[-N:-N2-1,:-N]-csum[-N:-N2-1,N:]-csum[-1,:-N])/(cumn[-1,N:]+cumn[-N:-N2-1,:-N]-cumn[-N:-N2-1,N:]-cumn[-1,:-N])
+#     res[N2+1:-N3,-N3:]=(csum[N:,-1][:,np.newaxis]+csum[:-N,-N:-N2-1]-csum[N:,-N:-N2-1]-csum[:-N,-1][:,np.newaxis])/ \
+#                     (cumn[N:,-1][:,np.newaxis]+cumn[:-N,-N:-N2-1]-cumn[N:,-N:-N2-1]-cumn[:-N,-1][:,np.newaxis])
+#     res[:N2+1,-N3:]=(csum[N3:N,-1][:,np.newaxis]-csum[N3:N,-N:-N2-1])/(cumn[N3:N,-1][:,np.newaxis]-cumn[N3:N,-N:-N2-1])
+#     res[-N3:,:N2+1]=(csum[-1,N3:N]-csum[-N:-N2-1,N3:N])/(cumn[-1,N3:N]-cumn[-N:-N2-1,N3:N])
+    
+    if  not fill_nan:
+        res[flag]=x0[flag];
    
     return res;
 
-# def rolling_mean2(x, N, ignore=None):
-#     res=nans(x.shape);
-#     if ignore is None or np.isnan(ignore):
-#         ignore = np.nan;
-#         x = np.insert(np.insert(x, 0, 0,axis=1), 0, 0,axis=0);
-#         mask_ignore = np.isnan(x);
-#     else:
-#         x = np.insert(np.insert(x, 0, 0,axis=1), 0, 0,axis=0);
-#         mask_ignore = (x==ignore);  
-#         
-#     x[mask_ignore] = 0; 
-#     cumn = ~mask_ignore; cumn = cumn.cumsum(0).cumsum(1);     
-#     csum = x.astype(float).cumsum(0).cumsum(1); 
-#  
+# def rolling_mean2(x0, N, ignore=None, mask_ignore=None, fill_nan=False):
 #     N2=N//2; N3=N-N2-1;
+#     x=x0.copy().astype(np.float32); 
+#     if mask_ignore is not None:
+#         x[mask_ignore]=np.nan
+#     if ignore is None: # or np.isnan(ignore):
+#         ignore = np.nan;
+#     if ignore!=0: 
+#         x[x==0]=np.inf;
+#     x = np.insert(np.insert(x, [0]*(N2+1)+[x.shape[1]]*N3, 0,axis=1), [0]*(N2+1)+[x.shape[0]]*N3, 0,axis=0);
+#     mask_ignore = (x==ignore) | (np.isnan(x)) | (x==0);
+#     x[mask_ignore | (x==np.inf)]=0
+# 
+#     cumn = ~mask_ignore; cumn = cumn.cumsum(0).cumsum(1);     
+#     csum = x.astype(float).cumsum(0).cumsum(1);  
+#     
 #     cnt=(cumn[N:,N:]-cumn[N:,:-N]-cumn[:-N,N:]+cumn[:-N,:-N]).astype(float); cnt[cnt<=0]=np.nan;
-#     res[N2:-N3,N2:-N3]=(csum[N:,N:]-csum[N:,:-N]-csum[:-N,N:]+csum[:-N,:-N]) / cnt; 
+#     res=(csum[N:,N:]-csum[N:,:-N]-csum[:-N,N:]+csum[:-N,:-N]) / cnt; 
 # #     plt.figure(); plt.imshow(res)
-#     res[mask_ignore[1:,1:]]=ignore;
+#     
+#     if  not fill_nan:
+#         res[mask_ignore[N2+1:-N3,N2+1:-N3]]=ignore;
 #    
 #     return res;
- 
+
+
+def rolling_std2(x0, N, ignore=np.nan):
+    m=rolling_mean2(x0,N,ignore=ignore);
+    m_sq=rolling_mean2(x0**2,N,ignore=ignore);
+    return np.sqrt(m_sq-m**2);
+
 def fill_by_mean2(x0, N, mask=None, ignore=np.nan):
-    x = x0.copy();
-    if not isinstance(mask, (list,np.ndarray,tuple)):
-        mask=np.isnan(x) if (mask is None) | (mask is np.nan)  else x0==mask;
-    imask=~mask
-    mask_ignore=np.isnan(x) if ignore is np.nan else  (x==ignore);
-    mask_ignore &= imask;    
-    x[mask_ignore | mask | np.isnan(x)]=0; 
-    res=nans(x0.shape);
-    x = np.insert(np.insert(x, 0, 0,axis=1), 0, 0,axis=0);
-   
-    cumn = np.insert(np.insert(imask&(~mask_ignore),0,False, axis=1), 0,False,axis=0); cumn = cumn.cumsum(0).cumsum(1);     
-    csum = x.astype(float).cumsum(0).cumsum(1); 
-    N2=N//2; N3=N-N2-1;
-    cnt=(cumn[N:,N:]-cumn[N:,:-N]-cumn[:-N,N:]+cumn[:-N,:-N]).astype(float); cnt[cnt<=0]=np.nan;
-    res[N2:-N3,N2:-N3]=(csum[N:,N:]-csum[N:,:-N]-csum[:-N,N:]+csum[:-N,:-N]) / cnt;  
-    res[imask]=x0[imask];
-    res[mask_ignore]=ignore;
-#     fig,ax=plt.subplots(1,3,sharex=True,sharey=True); ax[0].imshow(cnt); ax[1].imshow(mask); ax[2].imshow(res) 
-   
-    return res.astype(x0.dtype);
+    res=rolling_mean2(x0,N,ignore=mask,fill_nan=True)   
+#     res=rolling_mean2(x0,N,mask_ignore=mask,fill_nan=True) 
+    x0[mask]=res[mask]   
+#     plt.figure(); plt.imshow(x0); plt.show();
+    return x0;
+ 
+# def fill_by_mean2(x0, N, mask=None, ignore=np.nan):
+#     x = x0.copy();
+#     if not isinstance(mask, (list,np.ndarray,tuple)):
+#         mask=np.isnan(x) if (mask is None) | (mask is np.nan)  else x0==mask;
+#     imask=~mask
+#     mask_ignore=np.isnan(x) if ignore is np.nan else  (x==ignore);
+#     mask_ignore &= imask;    
+#     x[mask_ignore | mask | np.isnan(x)]=0; 
+#     res=nans(x0.shape);
+#     x = np.insert(np.insert(x, 0, 0,axis=1), 0, 0,axis=0);
+#    
+#     cumn = np.insert(np.insert(imask&(~mask_ignore),0,False, axis=1), 0,False,axis=0); cumn = cumn.cumsum(0).cumsum(1);     
+#     csum = x.astype(float).cumsum(0).cumsum(1); 
+#     N2=N//2; N3=N-N2-1;
+#     cnt=(cumn[N:,N:]-cumn[N:,:-N]-cumn[:-N,N:]+cumn[:-N,:-N]).astype(float); cnt[cnt<=0]=np.nan;
+#     res[N2:-N3,N2:-N3]=(csum[N:,N:]-csum[N:,:-N]-csum[:-N,N:]+csum[:-N,:-N]) / cnt;  
+#     res[imask]=x0[imask];
+#     res[mask_ignore]=ignore;
+# #     fig,ax=plt.subplots(1,3,sharex=True,sharey=True); ax[0].imshow(cnt); ax[1].imshow(mask); ax[2].imshow(res) 
+#    
+#     return res.astype(x0.dtype);
     
 def fill_by_interp2(c,xbin=None,ybin=None):
     import scipy.interpolate as itp    
@@ -252,29 +291,23 @@ def fill_by_dialate2(cc,nnan=6,iter=1):
             ti,=np.nonzero(np.nansum(np.isnan(cc[ymi,xmi]),axis=0)<=nnan)
             cc[ym[ti],xm[ti]]=np.nanmean(cc[ymi,xmi],axis=0)[ti]  
     return cc   
-    
-def remove_outliers(d,fill=None, m=2.6):
-    data=d.copy();
-    if fill != None:
-        data[data==fill]=np.nan;
-    data[abs(data - np.nanmean(data)) >= m * np.nanstd(data)]=np.nan;
-    return data;    
 
-def fill(data, invalid=None):
-    from scipy import ndimage as nd
-    if invalid is None: invalid = np.isnan(data)
-    ind = nd.distance_transform_edt(invalid, 
-                                    return_distances=False, 
-                                    return_indices=True)
-    return data[tuple(ind)]    
-    
+def lower_upper(x0,percentile=0.025):
+    x=x0.ravel(); x=x[x<np.Inf]    
+    hist,bins=np.histogram(x,bins=200)
+    bcs=0.5*(bins[:-1]+bins[1:])
+    total=np.sum(hist);  cumhist=np.cumsum(hist);
+    lower=bcs[np.argmax(cumhist>percentile*total)];
+    upper=bcs[200-np.argmax(cumhist[::-1]<=(1-percentile)*total)]; 
+    upper=max(lower,upper)
+    return lower,upper
   
-def get_border(im, nbuf=3):
-    from scipy.ndimage.filters import uniform_filter
-
-    mn = uniform_filter(im.astype(float), (nbuf,nbuf)); 
-    lb=np.all((mn<0.99,mn>0.01,im),axis=0); 
-    return lb
+def get_border(im0, nbuf=3, thresh=0.1,ignore=None):
+    im=im0.astype(np.float32); 
+    if ignore is not None:
+        im[ignore]=1e6
+    mn = uniform_filter(im, (nbuf,nbuf)); 
+    return (mn<1-thresh) & (mn>thresh); 
 
 def bounding_box(img):
     rows = np.any(img, axis=1)

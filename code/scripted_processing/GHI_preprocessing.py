@@ -27,7 +27,7 @@ def GHI_pre_MP(args):
         df[df[:,1]<=5, 1] = np.nan
 
         print(df[0,0], df[-1,0])
-        
+
         #bins = np.arange(df[0,0], df[-1,0], dt.timedelta(minutes=1))
         bins = np.arange(df[0,0], df[-1,0], 60)
         #timestamp = 0.5 * (bins[1:] + bins[:-1])
