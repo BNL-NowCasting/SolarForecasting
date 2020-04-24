@@ -59,6 +59,50 @@ def create_kml(minlong, minlat, maxlong, maxlat, overlay, kml_file, name, legend
     
     with open(kml_file, 'w') as k_file:
         k_file.write(content)
+        
+        
+def create_plots(stats, path, lead_minutes, GHI_Coor, gridspaces):
+
+    scale_max = np.amax(stats)
+    
+    for idx, forecast_int in enumerate(lead_minutes):
+        int_stats = stats[:,idx]
+        if not len(int_stats) == len(GHI_Coor):
+            print("Stats array different length than configured GHI coords list: %i, %i" % (len(int_stats), len(GHI_Coor)))
+            
+        plot_stats = int_stats.reshape(gridspaces,gridspaces)
+        
+        #Create plot
+        plt.imshow(plot_stats, cmap='jet', vmin=0, vmax=scale_max, interpolation=None)
+        cb = plt.colorbar()
+        cb.set_label('Forecast Availability (Points/Forecast Period)', rotation=-90, color='k', labelpad=20)
+        plt.tight_layout(); 
+        ax = plt.gca()
+        ax.invert_yaxis()
+        plt.savefig(path+'/forecast_stats_'+str(forecast_int)+'.png')
+        
+        #Create legend
+        ax.remove()
+        plt.savefig(path+'/stats_legend_'+str(forecast_int)+'.png', transparent=False, bbox_inches='tight')
+        
+        plt.close()
+        
+        #Create overlay
+        plt.imshow(plot_stats, cmap='jet', vmin=0, vmax=scale_max)
+        ax = plt.gca()
+        ax.invert_yaxis()
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        overlay_file = path+'/stats_overlay_'+str(forecast_int)+'.png'
+        plt.savefig(overlay_file, bbox_inches='tight',transparent=True, pad_inches=0)
+        plt.close()
+
+        longs = [i[1] for i in GHI_Coor.values()]
+        lats = [i[0] for i in GHI_Coor.values()]
+
+        kml_file = path+'/stats_overlay_'+str(forecast_int)+'.kml'
+        create_kml(min(longs), min(lats), max(longs), max(lats), overlay='stats_overlay_'+str(forecast_int)+'.png', kml_file=kml_file, name=str(forecast_int)+' Min Forecast Availability', legend='stats_legend_'+str(forecast_int)+'.png', day=day)
+    
 
 
 try:
@@ -70,6 +114,7 @@ try:
     cp.read(config_path)
 
     feature_path=le(cp["paths"]["feature_path"])
+    stats_path=le(cp["paths"]["stats_path"])
 
     lead_minutes=le(cp["forecast"]["lead_minutes"])
     days=le(cp["forecast"]["days"])
@@ -86,55 +131,31 @@ try:
    
 except KeyError as e:
     print("Error loading config: %s" % e)
+    
+if not os.path.isdir(stats_path+days[0][:8]+'-'+days[-1][:8]):
+    try:
+        os.mkdir(stats_path+days[0][:8]+'-'+days[-1][:8])
+    except:
+        print('Cannot create directory,', stats_path+days[0][:8]+'-'+days[-1][:8])
 
         
 plt.ioff()  #Turn off interactive plotting for running automatically
 
 
 
-for day in days:
+for d_idx, day in enumerate(days):
 
     print("Calculating metrics for " + day)
       
     f_stats = np.genfromtxt(feature_path+day[:8]+'/forecast_stats.csv',delimiter=',',dtype=np.int16)
     
-    scale_max = np.amax(f_stats)
+    if d_idx == 0:
+        all_stats = np.copy(f_stats)
+    else:
+        all_stats += f_stats
     
-    for idx, forecast_int in enumerate(lead_minutes):
-        int_stats = f_stats[:,idx]
-        if not len(int_stats) == len(GHI_Coor):
-            print("Stats array different length than configured GHI coords list: %i, %i" % (len(int_stats), len(GHI_Coor)))
-            
-        plot_stats = int_stats.reshape(gridspaces,gridspaces)
-        
-        #Create plot
-        plt.imshow(plot_stats, cmap='jet', vmin=0, vmax=scale_max)
-        cb = plt.colorbar()
-        cb.set_label('Forecast Availability (Points/Day)', rotation=-90, color='k', labelpad=20)
-        plt.tight_layout(); 
-        ax = plt.gca()
-        ax.invert_yaxis()
-        plt.savefig(feature_path+day[:8]+'/forecast_stats_'+str(forecast_int)+'.png')
-        
-        #Create legend
-        ax.remove()
-        plt.savefig(feature_path+day[:8]+'/stats_legend_'+str(forecast_int)+'.png', transparent=False, bbox_inches='tight')
-        
-        plt.close()
-        
-        #Create overlay
-        plt.imshow(plot_stats, cmap='jet', vmin=0, vmax=scale_max)
-        ax = plt.gca()
-        ax.invert_yaxis()
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-        overlay_file = feature_path+day[:8]+'/stats_overlay_'+str(forecast_int)+'.png'
-        plt.savefig(overlay_file, bbox_inches='tight',transparent=True, pad_inches=0)
-        plt.close()
+    create_plots(f_stats, feature_path+day[:8], lead_minutes, GHI_Coor, gridspaces)
 
-        longs = [i[1] for i in GHI_Coor.values()]
-        lats = [i[0] for i in GHI_Coor.values()]
-
-        kml_file = feature_path+day[:8]+'/stats_overlay_'+str(forecast_int)+'.kml'
-        create_kml(min(longs), min(lats), max(longs), max(lats), overlay='stats_overlay_'+str(forecast_int)+'.png', kml_file=kml_file, name=str(forecast_int)+' Min Forecast Availability', legend='stats_legend_'+str(forecast_int)+'.png', day=day)
-    
+print("Calculating total metrics for " + days[0][:8]+'-'+days[-1][:8])
+np.savetxt(stats_path+days[0][:8]+'-'+days[-1][:8]+'/forecast_stats.csv', all_stats, fmt="%i", delimiter=',')
+create_plots(all_stats, stats_path+days[0][:8]+'-'+days[-1][:8], lead_minutes, GHI_Coor, gridspaces)
