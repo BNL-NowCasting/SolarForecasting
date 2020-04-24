@@ -21,14 +21,14 @@ import pickle
 import traceback
 
 def load_image( zip_item ):
-	camera, previous_image, f, reprocess, KEY, pick = zip_item
+	camera, previous_image, f, reprocess, KEY, conf = zip_item
 	c_id = camera.c_id
 	print( "Load image " + c_id )
 
 	image_name = os.path.basename(f)
 
 	# load, undistort, cloud mask
-	image = Image(camera, f, previous_image, pick, reprocess=reprocess, KEY=KEY)
+	image = Image(camera, f, previous_image, conf, reprocess=reprocess, KEY=KEY)
 	if image.error:
 		print( "Image load failed: " + str(image.error) )
 		return (c_id, None)
@@ -53,7 +53,7 @@ def append_to_csv( df, fp ):
 	else:
 		df.to_csv( fp, mode='a', index=False, header=False )
 
-def get_next_image( image_path, cam, ts, file_lists ):
+def get_next_image( image_path, cam, ts, file_lists, base_name=False ):
 	start_ts = ts.strftime( "%Y%m%d%H%M%S" )
 	end_ts = (ts+timedelta(seconds=30)).strftime( "%Y%m%d%H%M%S" )
 
@@ -64,10 +64,12 @@ def get_next_image( image_path, cam, ts, file_lists ):
 	    and os.path.isfile(f)
 	]
 	if len(filtered_files) == 0:
-		print( "No matches found for camera {} at {}{}".format(
-		    cam, minute, second
+		print( "No matches found for camera {} at {}".format(
+		    cam, start_ts
 		) )
 		return None
+	if base_name:
+		filtered_files[0] = os.path.basename( filtered_files[0] )
 	return filtered_files[0]
 
 # used to override individual methods without messy version management
@@ -123,7 +125,90 @@ class ImageSet:
 				file_lists[cam] = []
 		ImageSet.file_lists = file_lists
 
-	def __init__(self, timestamp, previous_set, camera_dict, config, KEY=""):
+	def __init__(self, timestamp, config, reprocess={}, KEY=""):
+		self.config = config
+		site = config["site_id"]
+		self.feature_path = config["paths"][site]["feature_path"]
+		self.pickle_path = config["paths"][site]["pickle_path"]
+		self.image_path = config["paths"][site]["img_path"]
+
+		self.deg2km = config["pipeline"]["deg2km"]
+		self.cam_ids = config["cameras"][site]["all_cameras"]
+
+		self.timestamp = timestamp
+		self.time_str = timestamp.strftime( "%Y%m%d%H%M%S" )
+		self.day = timestamp.strftime( "%Y%m%d" )
+
+		self.KEY = KEY
+		self.reprocess = reprocess
+
+		self.cloud_base_height = None
+		self.cloud_base_vel = None
+		self.stitched_image = None
+		self.extracted_features = False
+		self.layer_vels = []
+		self.vels = []
+		self.layer_heights = []
+		self.heights = []
+
+		## are we already done processing this ImageSet?
+		self.loaded = False
+		self.complete = False
+		self.skip_bc_night = False
+
+		fp = "{}{}/{}/*_{}.csv".format(
+		    self.feature_path, KEY, self.day, self.timestamp
+		)
+		if not self.reprocess["any"] and len(glob.glob(fp)):
+			print( "Skipping ImageSet; features already extracted" )
+			self.complete = True
+			return
+
+		## I want this camera to be consistent between runs but also
+		## to work on all sites and if cameras are changed
+		arbitrary_camera = config["cameras"][site]["central_camera"]
+		latlon = config["cameras"][site][arbitrary_camera]["latlon"]
+
+		gatech = ephem.Observer();
+		gatech.date = timestamp.strftime('%Y/%m/%d %H:%M:%S')
+		gatech.lat = str(latlon[0])
+		gatech.lon = str(latlon[1])
+
+		sun = ephem.Sun()
+		sun.compute(gatech)
+		if sun.alt < config["pipeline"]["night_altitude_rad"]:
+			self.skip_bc_night = True
+			print( "Skipping because it is night time" )
+			return
+
+		# preload the day's images rather than loading
+		# them once for every 30 seconds
+		day = timestamp.strftime( "%Y%m%d" )
+		if day != ImageSet.file_lists_day:
+			ImageSet.populate_file_lists(
+			    day, self.cam_ids, self.image_path
+			)
+			# maintain a local reference to the correct file lists
+			# so that we can reference them even if another run
+			# changes the class variable
+			self.file_lists = ImageSet.file_lists
+
+			# assuming the next instance is for the same day
+			# we won't have to run this again
+			ImageSet.file_lists_day = day
+
+		## load associated images
+		self.load_images()
+
+		## load any previous progress
+		self.pic_dir = "{}{}/image_sets/{}/".format(
+		    self.pickle_path, KEY, self.day
+		)
+		self.pic_path = "{}{}.pkl".format(self.pic_dir, self.time_str)
+		self.load_details(KEY=KEY)
+
+		return
+
 		print( "Start image set " + str(timestamp) )
 		self.loaded = False
 		self.complete = False
@@ -135,43 +220,10 @@ class ImageSet:
 		self.KEY = KEY
 
 
-		site = config["site_id"]
-		self.feature_path = config["paths"][site]["feature_path"]
-		self.pickle_path = config["paths"][site]["pickle_path"]
-		self.image_path = config["paths"][site]["img_path"]
-
-		self.timestamp = timestamp
-		self.time_str = timestamp.strftime( "%Y%m%d%H%M%S" )
-		self.day = timestamp.strftime( "%Y%m%d" )
-
-		self.set_reprocess() # determine which steps to reprocess
+		#self.set_reprocess() # determine which steps to reprocess
+		self.reprocess = reprocess
 
 		self.images = {}
-
-		## are we already done processing this ImageSet?
-		fp = "{}{}/{}/*_{}.csv".format(
-		    self.feature_path, KEY, self.day, self.timestamp
-		)
-		if not self.reprocess["any"] and len(glob.glob(fp)):
-			print( "Skipping ImageSet; features already extracted" )
-			self.complete = True
-			return
-
-		# I want this camera to be consistent between runs but also
-		# to work on all sites and if cameras are changed
-		arbitrary_camera = camera_dict[min(camera_dict.keys())]
-
-		gatech = ephem.Observer();
-		gatech.date = timestamp.strftime('%Y/%m/%d %H:%M:%S')
-		gatech.lat = str(arbitrary_camera.lat)
-		gatech.lon = str(arbitrary_camera.lon)
-
-		sun = ephem.Sun()
-		sun.compute(gatech)
-		if sun.alt < config["pipeline"]["night_altitude_rad"]:
-			self.skip_bc_night = True
-			print( "Skipping because it is night time" )
-			return
 
 		if KEY:
 			use_test_methods( self, KEY )
@@ -189,74 +241,66 @@ class ImageSet:
 		self.layer_heights = []
 		self.heights = []
 
-		self.load_details(KEY=KEY)
 		if previous_set is not None and not previous_set.loaded:
 			previous_set.load_details(KEY=KEY)
 			previous_set.minimize_memory_load()
 		
-		self.camera_dict = camera_dict
-
-		self.pic_dir = "{}{}/image_sets/{}/".format(
-		    self.pickle_path, KEY, self.day
-		)
-		self.pic_path = "{}{}.pkl".format(self.pic_dir, self.time_str)
-
-		day = timestamp.strftime( "%Y%m%d" )
-		if day != ImageSet.file_lists_day:
-			# preload the day's images rather than loading
-			# them once for every 30 seconds
-			ImageSet.populate_file_lists(
-			    day, camera_dict.keys(), self.image_path
-			)
-			# maintain a local reference to the correct file lists
-			# so that we can reference them even if another run
-			# changes the class variable
-			self.file_lists = ImageSet.file_lists
-
-			# assuming the next instance is for the same day
-			# we won't have to run this again
-			ImageSet.file_lists_day = day
 
 		self.previous_images = {}
 
-		self.load_images()
 		
 	def load_images( self ):
-		cam_ids = list(self.camera_dict.keys())
-		cameras = [self.camera_dict[c_id] for c_id in cam_ids]
-
-		p = multiprocessing.Pool(len(cam_ids))
-
-		if self.previous_set:
-			previous_images = [
-			  self.previous_set.images.get(c_id) for c_id in cam_ids
-			]
-		else:
-			previous_images = repeat(None)
-
+		cam_ids = self.cam_ids #list(self.camera_dict.keys())
+		self.images = {}
+#		cameras = [self.camera_dict[c_id] for c_id in cam_ids]
+#
+#		p = multiprocessing.Pool(len(cam_ids))
+#
+#		if self.previous_set:
+#			previous_images = [
+#			  self.previous_set.images.get(c_id) for c_id in cam_ids
+#			]
+#		else:
+#			previous_images = repeat(None)
+#
 		file_paths = [
 		    get_next_image(
-		      self.image_path, c_id, self.timestamp, self.file_lists
+		      self.image_path, c_id, self.timestamp, self.file_lists, base_name=True
 		    ) for c_id in cam_ids
 		]
+		for fp, cam in zip(file_paths, cam_ids):
+			fp = self.pickle_path + "preprocessed_imgs/{}/{}.pkl".format(
+			    self.day, fp
+			)
+			try:
+				print( fp )
+				with open( fp, 'rb' ) as image_file:
+					img = pickle.load( image_file )
+				if not img.error:
+					self.images[cam] = img
+					print( "LOADED CM: " ) 
+					print( img.cm )
+			except:
+				print( traceback.format_exc() )
+		
 
-		for (c_id, img) in zip(cam_ids, previous_images):
-			self.previous_images[c_id] = img
+#		for (c_id, img) in zip(cam_ids, previous_images):
+#			self.previous_images[c_id] = img
 
-		args = zip(cameras, previous_images, file_paths, 
-		            repeat(self.reprocess["image"]), repeat(self.KEY),
-		            repeat(self.pickle_path) )
-		print( "start load_image" )
-		images = p.map( 
-		    load_image, 
-		    args
-		)
-		p.close()
-		p.join()
-
-		for (c_id, img) in images:
-			if img is not None and not img.error:
-				self.images[c_id] = img
+#		args = zip(cameras, previous_images, file_paths, 
+#		            repeat(self.reprocess), repeat(self.KEY),
+#		            repeat(self.config) )
+#		print( "start load_image" )
+#		images = p.map( 
+#		    load_image, 
+#		    args
+#		)
+#		p.close()
+#		p.join()
+#
+#		for (c_id, img) in images:
+#			if img is not None and not img.error:
+#				self.images[c_id] = img
 
 	def cloud_height(self):
 		#print( "Start cloud height" )
@@ -271,14 +315,10 @@ class ImageSet:
 
 #		p = multiprocessing.Pool(10)
 #		p.map( cloud_height_helper, zip(repeat(self.camera_dict), [cam for cam in self.camera_dict if cam in self.images], repeat(self.images)) )
-		for cam in self.camera_dict:
-			if not cam in self.images:
-				print("skipping {}; img not found".format(cam))
-				continue
+		for cam in self.images:
+			cloud_height_helper(cam, self.images)
 
-			cloud_height_helper(self.camera_dict, cam, self.images)
-
-		cams = list(self.camera_dict.keys())
+		cams = self.cam_ids
 		cams.sort()
 
 		self.heights = [ self.images[cam].height if cam in self.images else [] for cam in cams ]
@@ -306,7 +346,7 @@ class ImageSet:
 			print( "Error: invoked cloud_motion but is night" )
 			return self.vels
 
-		p = multiprocessing.Pool(len(self.camera_dict.keys()))
+		p = multiprocessing.Pool(len(self.cam_ids))
 		motion_arr = p.map( cloud_motion_helper, self.images.values() )
 		p.close()
 		p.join()
@@ -315,7 +355,7 @@ class ImageSet:
 			self.images[c_id].v = vels
 			self.images[c_id].layers = layers
 
-		cams = list(self.camera_dict.keys())
+		cams = list(self.cam_ids)
 		cams.sort()
 
 		self.vels = [self.images[c_id].v if c_id in self.images else [[np.nan, np.nan]] for c_id in cams]
@@ -355,8 +395,8 @@ class ImageSet:
 			print("Error: invoked features but is night")
 			return
 
-		if self.stitched_image is None:
-			self.stitch()
+#		if self.stitched_image is None:
+#			self.stitch()
 
 		locs = self.config["ghi_sensors"]["coords"]
 		self.ghi_locs = np.array( [
@@ -383,10 +423,10 @@ class ImageSet:
 			print("Error: invoked stitch but is night")
 			return None
 
-		if self.cloud_base_height is None:
-			self.cloud_height()
-		if self.cloud_base_vel is None:
-			self.cloud_motion()
+#		if self.cloud_base_height is None:
+#			self.cloud_height()
+#		if self.cloud_base_vel is None:
+#			self.cloud_motion()
 
 		heights = self.layer_heights
 		vels = self.layer_vels
@@ -398,11 +438,11 @@ class ImageSet:
 		heights = np.array(heights)
 		vels = np.array(vels)
 
-		self.min_lat = min( [cam.lat for cam in self.camera_dict.values()] )
-		self.min_lon = min( [cam.lon for cam in self.camera_dict.values()] )
-		self.max_lat = max( [cam.lat for cam in self.camera_dict.values()] )
-		self.max_lon = max( [cam.lon for cam in self.camera_dict.values()] )
-		self.median_lat = np.median( [cam.lat for cam in self.camera_dict.values()] )
+		self.min_lat = min( [img.camera.lat for img in self.images.values()] )
+		self.min_lon = min( [img.camera.lon for img in self.images.values()] )
+		self.max_lat = max( [img.camera.lat for img in self.images.values()] )
+		self.max_lon = max( [img.camera.lon for img in self.images.values()] )
+		self.median_lat = np.median( [img.camera.lat for img in self.images.values()] )
 
 		self.x_cams = (self.max_lon - self.min_lon) * self.deg2km * np.cos( self.min_lat * np.pi / 180 )
 		self.y_cams = (self.max_lat - self.min_lat) * self.deg2km
@@ -529,7 +569,6 @@ class ImageSet:
 		if self.loaded and self.complete:
 			self.stitched_image = None
 			self.file_lists = None
-			self.camera_dict = None
 			self.config = None
 			self.previous_set = None
 

@@ -1,15 +1,21 @@
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import pvlib
+from pvlib import clearsky, atmosphere, solarposition
+from pvlib.location import Location
 
 def extract_features_helper( image_set ):
 	img = image_set.stitched_image
 	s = image_set.stitched_image
 
-	ghi_xs = ( image_set.ghi_locs[:,1] - img.lon ) * image_set.deg2km * np.cos( image_set.ghi_locs[0,0] * np.pi / 180. )
-	ghi_ys = ( img.lat - image_set.ghi_locs[:,0] ) * image_set.deg2km
+	latlon_to_predict = image_set.ghi_locs # this should be a grid eventually
+
+	ghi_xs = ( latlon_to_predict[:,1] - img.lon ) * image_set.deg2km * np.cos( latlon_to_predict[0,0] * np.pi / 180. )
+	ghi_ys = ( img.lat - latlon_to_predicct[:,0] ) * image_set.deg2km
 
 	# x,y coordinates of the sky directly above each ghi loc's latlon
+	print( img.h )
 	img_xs = np.rint(
 	    (ghi_xs - img.h * np.tan(img.sz) * np.sin(img.saz)) / img.pixel_size
 	).astype(np.int32)
@@ -22,9 +28,11 @@ def extract_features_helper( image_set ):
 	    "cf", "avg_r", "avg_g", "avg_b", "min_r", "min_g",
 	    "min_b", "max_r", "max_g", "max_b", "rbr", "cf2",
 	    "avg_r2", "avg_g2", "avg_b2", "min_r2", "min_g2",
-	    "min_b2", "max_r2", "max_g2", "max_b2", "rbr2"
+	    "min_b2", "max_r2", "max_g2", "max_b2", "rbr2",
+	    "sky_frac", "cld_frac", "max_ghi"
 	]
-	for i in range(len(image_set.ghi_locs)):
+	for i in range(len(latlon_to_predict)):
+		loc = Location( latlon_to_predict[i][0], latlon_to_predict[i][1], 'UTC' )
 		fdir = "{}{}/".format( image_set.feature_path, image_set.day )
 		if image_set.KEY:
 			fdir = "{}{}/{}/".format(
@@ -34,7 +42,7 @@ def extract_features_helper( image_set ):
 		    fdir, i, image_set.timestamp
 		)
 			
-		print( "FN: " + str(fn))
+		#print( "FN: " + str(fn))
 		Path( fdir ).mkdir( parents=True, exist_ok=True )
 		features = pd.DataFrame( columns=columns )
 		features.to_csv(fn)
@@ -43,10 +51,10 @@ def extract_features_helper( image_set ):
 		x = img_xs[i]
 
 		#print( "top" )
-		#print( image_set.ghi_locs[:,1])
-		print( i, img.lon, image_set.deg2km, np.cos( image_set.ghi_locs[0,0] * np.pi / 180. ) )
-		print( i, ghi_xs[i], img.h, np.tan(img.sz), np.sin(img.saz), img.pixel_size )
-		print( i, x, image_set.ghi_locs[i,1], img.lon, image_set.deg2km, np.cos(image_set.ghi_locs[0,0]*np.pi/180.) )
+		#print( latlon_to_predict[:,1])
+		#print( i, img.lon, image_set.deg2km, np.cos( latlon_to_predict[0,0] * np.pi / 180. ) )
+		#print( i, ghi_xs[i], img.h, np.tan(img.sz), np.sin(img.saz), img.pixel_size )
+		#print( i, x, latlon_to_predict[i,1], img.lon, image_set.deg2km, np.cos(latlon_to_predict[0,0]*np.pi/180.) )
 
 		[ny, nx] = img.cm.shape
 
@@ -62,6 +70,7 @@ def extract_features_helper( image_set ):
 
 		rgb0 = img.rgb.astype(np.float32)
 		rgb0[rgb0<=0] = np.nan
+
 		rgb = np.reshape(rgb0[slc], (-1,3))
 		[avg_r, avg_g, avg_b] = np.nanmean(rgb,axis=0)
 		if np.isnan(avg_r):
@@ -78,9 +87,12 @@ def extract_features_helper( image_set ):
 		for ilt, lead_min in enumerate(image_set.lead_minutes):
 			lead_steps = lead_min / image_set.interval
 			# TODO use whatever layer stitch picked
-			y2 = int(round(y + image_set.layer_vels[0][0]*lead_steps))
+			vels = image_set.layer_vels
+			if not len(image_set.layer_vels) or not len(image_set.layer_vels[0]):
+				vels = [[0,0]]
+			y2 = int(round(y + vels[0][0]*lead_steps))
 			# negate vx since the image is flipped
-			x2 = int(round(x - image_set.layer_vels[0][1]*lead_steps))
+			x2 = int(round(x - vels[0][1]*lead_steps))
 			slc=np.s_[max(0, y2-image_set.win_size):min(ny-1, y2+image_set.win_size), max(0,x2-image_set.win_size):min(nx-1,x2+image_set.win_size)]
 
 			# can't see the lead_min distant clouds
@@ -101,12 +113,14 @@ def extract_features_helper( image_set ):
 			    "%Y%m%d%H%M%S"
 			)
 
+			max_ghi = loc.get_clearsky( image_set.timestamp ).loc[0, 'ghi']
 			features = features.append( pd.DataFrame( np.array( [[
 			    lead_min, time_str, img.h, img.sz,
 			    cf, avg_r, avg_g, avg_b, min_r, min_g,
 			    min_b, max_r, max_g, max_b, rbr, cf2,
 			    avg_r2, avg_g2, avg_b2, min_r2, min_g2,
-			    min_b2, max_r2, max_g2, max_b2, rbr2
+			    min_b2, max_r2, max_g2, max_b2, rbr2, 
+			    max_ghi
 			]] ), columns=columns ) )
 
 		features.reset_index(drop=True, inplace=True)

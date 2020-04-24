@@ -4,31 +4,27 @@ import tools.mncc as mncc
 import tools.stat_tools_2 as st
 import traceback
 
-def cloud_height_helper( camera_dict, cam_id, images ):
+def cloud_height_helper( cam_id, images ):
 	import warnings
 	warnings.filterwarnings('ignore')
-	
-	cameras = camera_dict
-	images = images
 
 	if not cam_id in images:
 		return
 
-	neighbors = cameras[cam_id].height_group
-	#print( "Height for " + cam_id )
-
 	img1 = images[cam_id]
 	img1.height = [[]]*img1.layers
 
-	cam1 = cameras[cam_id]
-	for n_id in cameras: #neighbors:
-		cam2 = cameras.get( n_id, None )
-		if not cam2:
-			continue
-		if not n_id in images:
-			continue
+	cam1 = img1.camera
+	neighbors = cam1.height_group
+	#print( "Height for " + cam_id )
 
+	for n_id in neighbors:
+		if not n_id in images:
+			print( "Missing image for " + n_id )
+			continue
 		img2 = images[n_id]
+		cam2 = img2.camera
+
 		distance = 6367e3*geo.distance_sphere(cam1.lat, cam1.lon, cam2.lat, cam2.lon)
 
 		for l in range(img1.layers):
@@ -64,12 +60,13 @@ def cloud_height_math( img1, img2, layer, distance=None ):
 	im1 = img1.red.astype(np.float32)
 	im2 = img2.red.astype(np.float32)
 
-
 	#mask_tmpl=(img1.cm==layer) 
 	mask_tmpl=(img1.cm==1) if layer==1 else (~(img1.cm==1) & (im1>0))
+	print( img1.cm, layer )
 
 	res = np.nan;
 	try:
+		print( np.sum(im1 != 0) )
 		corr = mncc.mncc( im2, im1, mask1=im2>0, mask2=mask_tmpl, ratio_thresh=0.5 )
 		if np.any(corr>0):
 			max_idx = np.nanargmax(corr)

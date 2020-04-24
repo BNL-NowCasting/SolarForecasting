@@ -14,52 +14,38 @@ import traceback
 last_images = None
 
 def get_next_image( image_path, cam, ts, file_lists ):
-        start_ts = ts.strftime( "%Y%m%d%H%M%S" )
-        end_ts = (ts+timedelta(seconds=30)).strftime( "%Y%m%d%H%M%S" )
+	start_ts = ts.strftime( "%Y%m%d%H%M%S" )
+	end_ts = (ts+timedelta(seconds=30)).strftime( "%Y%m%d%H%M%S" )
 
-        filtered_files = [
-            f for f in file_lists[cam]
-            if f[-18:-4] >= start_ts
-            and f[-18:-4] < end_ts
-            and os.path.isfile(f)
-        ]
-        if len(filtered_files) == 0:
-                print( "No matches found for camera {} at {}{}".format(
-                    cam, minute, second
-                ) )
-                return None
-        return filtered_files[0]
-
-def prepare_image_set(args):
-	print( "Prepare " + image_file )
-	c_id, ts, image_file, previous_image_file, pickle_path = args
-	image = Image( c_id, image_file, previous_image_file, pickle_path )
-
-	print( "Undistort" )
-	image.undistort()
-	if image.error:
-		print( "{} Image undistort failed: {}".format(
-		    c_id, image.error
+	filtered_files = [
+	    f for f in file_lists[cam]
+	    if f[-18:-4] >= start_ts
+	    and f[-18:-4] < end_ts
+	    and os.path.isfile(f)
+	]
+	if len(filtered_files) == 0:
+		print( "No matches found for camera {} at {}".format(
+		    cam, ts
 		) )
-		# log_bad_image(image)
+		return None
+	return filtered_files[0]
+
+def prepare_image(args):
+	c_id, ts, image_file, previous_image_file, config, reprocess = args
+	if image_file is None:
 		return
-
-	print( "Mask" )
-	image.cloud_mask()
-
-	print( "Motion" )
-	image.cloud_motion()
-
-	image.dump_self()
+	print( "Prepare " + str(image_file) )
+	image = Image(image_file, previous_image_file, config, reprocess=reprocess, camera_id=c_id)
+	image.preprocess()
 
 def process_image_set(args):
+	ts, config, reprocess = args
 	#ts, cam_ids, image_files, pickle_path = args
-	return
 
-	image_set = ImageSet( ts, cam_ids, image_files, pickle_path )
+	image_set = ImageSet( ts, config, reprocess )
 	image_set.cloud_height()
 	image_set.stitch()
-	image_set.dump_self()
+	image_set.dump_set()
 	image_set.extract_features()
 
 def preprocess( config, logger, KEY="" ):
@@ -72,6 +58,8 @@ def preprocess( config, logger, KEY="" ):
 	num_cores = config["pipeline"]["cores_to_use"]
 	cameras = config["cameras"][site]["all_cameras"]
 
+	reprocess = build_reprocess( config )
+
 	target_ranges = sorted( zip(
 		config["pipeline"]["target_ranges"]["start_dates"],
 		config["pipeline"]["target_ranges"]["end_dates"]
@@ -83,7 +71,7 @@ def preprocess( config, logger, KEY="" ):
 		next_t = datetime.strptime( '0001', '%Y' )
 		for (start, end) in target_ranges:
 			# start a step behind start so we can have last_images set when we start
-			start_t = utils.date_from_timestamp( start ) - timedelta(seconds = 30 )
+			start_t = utils.date_from_timestamp( start ) - timedelta(seconds=30)
 			end_t = utils.date_from_timestamp( end )
 
 			if start_t > next_t:
@@ -98,22 +86,25 @@ def preprocess( config, logger, KEY="" ):
 				next_t = next_t + timedelta( seconds=30 )
 
 	pic_path = pickle_path + "camera_objects.pkl"
-	camera_dict = utils.try_pickle(
-		pic_path,
-		create_camera_objects,
-		[config]
-	)
+#	camera_dict = utils.try_pickle(
+#		pic_path,
+#		create_camera_objects,
+#		[config]
+#	)
 
 	pool = multiprocessing.Pool( num_cores )
 
 	# Process in chunks as a compromise between preprocessing all images,
-	# then doing all clouds heights, then all feature extraction etc. and 
-	# fully processing each timestamp in order
+	# then doing all clouds heights, then all feature extraction etc. (efficient & easy)
+	# and fully processing each timestamp in order (actually provides forecasts before the whole
+	#   process is completed)
 	ts_gen = timestamps_to_consider()
 	timestamps = []
 
 	file_lists = {}
 	last_day = None
+
+	first = True
 	for ts in ts_gen:
 		day = ts.strftime( "%Y%m%d" )
 		if day != last_day:
@@ -122,6 +113,7 @@ def preprocess( config, logger, KEY="" ):
 				p = img_path + "{}/{}/".format(
 				    cam, day
 				)
+				print( p )
 				# if there are no records for a day
 				# use a blank array
 				if os.path.isdir( p ):
@@ -137,25 +129,35 @@ def preprocess( config, logger, KEY="" ):
 		]
 		previous_image_files = [get_next_image(
 		    img_path, cam, ts-timedelta(seconds=30), file_lists
-		) for cam in cameras] # breaks at midnight but GHI is 0 at midnight
+		) for cam in cameras] # breaks at midnight but GHI is 0 at midnight, so eh...
+		if first:
+			previous_image_files = repeat(None, len(cameras))
+#		print( list( zip( image_files, previous_image_files ) ) )
+
+		args = zip_longest(
+		    cameras, repeat(ts, len(cameras)),
+		    image_files, previous_image_files, repeat(config, len(cameras)), 
+		    repeat(reprocess, len(cameras))
+		)
+		print( "Prepare image set" )
 		pool.map( 
-		    prepare_image_set,
-		    zip_longest(
-		      cameras, repeat(ts),
-		      image_files, previous_image_files, repeat(pickle_path)
-		    )
+		    prepare_image,
+		    args
 		)
 
 		# do preprocessing which requires all images for the current 
 		# timestamp to have been processed 
-		# 	(cloud height, motion, features, stitch)
+		# 	(cloud height, features, stitch)
 		if len(timestamps) == num_cores:
-			pool.map( process_image_set, zip_longest(timestamps) )
+			pool.map( process_image_set, zip(timestamps, repeat(config), repeat(reprocess)) )
 			timestamps = []
-		timestamps.append( ts )
+		if not first:
+			timestamps.append( ts )
+		else:
+			first = False
 
 	if len(timestamps):
-		pool.map( process_image_set, zip_longest(timestamps) )
+		pool.map( process_image_set, zip(timestamps, repeat(config), repeat(reprocess)) )
 	pool.close()
 	pool.join()
 
@@ -188,6 +190,48 @@ def create_camera_objects( config ):
 	    ) for c_id in camera_ids
 	}
 	return cameras
+
+# determine which parts of the processing sequence need to be redone
+def build_reprocess(config):
+	dependencies = {
+	    "features": ["stitch"],
+	    "stitch": ["height", "motion"],
+	    "motion": ["image"],
+	    "height": ["image"],
+	    "image": []
+	}
+	fill_dependencies( dependencies, "features" ) # modifies dependencies in place
+
+	pl_c = config["pipeline"]
+	reprocess = {
+	    "features": pl_c["features"]["reprocess"],
+	    "height": pl_c["height"]["reprocess"],
+	    "motion": pl_c["motion"]["reprocess"],
+	    "stitch": pl_c["stitch"]["reprocess"],
+	    "image": pl_c["image_preprocessing"]["reprocess"]
+	}
+	reprocess["all"] = (pl_c["reprocess_all"] or
+				all(v for v in reprocess.values()))
+	reprocess["any"] = any(v for v in reprocess.values())
+
+	for key in dependencies.keys():
+		reprocess[key] = (
+		    reprocess["all"] or
+		    reprocess[key] or
+		    any(reprocess[val]
+		      for val in dependencies[key])
+		)
+	print( "reprocess: " + str(reprocess) )
+	return reprocess
+
+def fill_dependencies(dependencies, root):
+	arr = dependencies[root]
+	for val in dependencies[root]:
+		arr += fill_dependencies( dependencies, val )
+	# no dups
+	arr = list(set(arr))
+	dependencies[root] = arr
+	return arr
 
 if __name__ == "__main__":
 	try:

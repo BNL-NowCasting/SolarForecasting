@@ -15,7 +15,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 
 class Camera:
-    def __init__(self, c_id, config, max_theta=7*np.pi/18.):
+    def __init__(self, c_id, config):
         site = config["site_id"]
         self.lat, self.lon = config["cameras"][site][c_id]["latlon"]
         self.height_group = config["cameras"][site][c_id]["group"]
@@ -23,6 +23,7 @@ class Camera:
 
         nx = config["cameras"]["img_w"]
         ny = config["cameras"]["img_h"]
+        max_theta = config["cameras"]["max_theta"] * np.pi / 180
 
         #### size of the undistorted image 
         if nx>=2000:

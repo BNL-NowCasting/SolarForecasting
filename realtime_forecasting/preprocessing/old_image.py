@@ -5,41 +5,17 @@ import numpy as np
 import os
 from pathlib import Path
 import pickle
-from scipy.ndimage import morphology
 from scipy.ndimage.filters import maximum_filter, gaussian_filter, laplace, median_filter
 from skimage.morphology import remove_small_objects
-import tools.mncc as mncc
 import tools.stat_tools_2 as st
-import tools.utils as utils
 import traceback
 
-NO_REPROCESS = {
-    "features": False,
-    "height": False,
-    "motion": False,
-    "stitch": False,
-    "image": False,
-    "all": False,
-    "any": False
-}
-
 class Image:
-	def __init__(self, fn, prev_fn, config, camera_object=None, camera_id=None, reprocess=NO_REPROCESS, KEY=""):
+	def __init__(self, camera, fn, previous_image, pickle_path, reprocess=False, KEY=""):
 		bn = os.path.basename( fn )
 		self.timestamp = datetime.strptime( bn[-18:-4], "%Y%m%d%H%M%S" )
 		self.day = bn[-18:-10]
-		self.reprocess = reprocess
-		site = config["site_id"]
-		self.pickle_path = config["paths"][site]["pickle_path"]
-
-		if camera_object:
-			camera = camera_object
-		elif camera_id:		
-			camera = utils.load_camera_object( camera_id, self.pickle_path, config ) 
-		else:
-			print( "Image constructor requires camera_object or camera_id" )
-			exit(1)
-
+		self.pickle_path = pickle_path
 		self.pic_dir = "{}preprocessed_imgs/{}/".format(
 			self.pickle_path, self.day
 		)
@@ -56,31 +32,24 @@ class Image:
 			    self.pic_dir, os.path.basename(fn)
 			)
 
-		if os.path.exists( self.pic_path ) and not reprocess["image"]:
+		if os.path.exists( self.pic_path ) and not reprocess:
 			with open( self.pic_path, 'rb' ) as fh:
 				self.__dict__ = pickle.load(fh).__dict__
-				self.reprocess = reprocess
 			return
 
 		if KEY:
-			if os.path.exists( old_pic_path ) and not reprocess["image"]:
+			if os.path.exists( old_pic_path ) and not reprocess:
 				with open( old_pic_path, 'rb' ) as fh:
 					self.__dict__ = pickle.load(fh).__dict__
-					self.reprocess = reprocess
 				return
 
 		self.fn = fn
 		self.camera = camera
-		self.previous_image = None
-		print( fn, prev_fn )
-		self.prev_fn = prev_fn
-		if prev_fn is not None:
-			self.previous_image = Image( prev_fn, None, config, camera_object=camera )
-			self.previous_image.preprocess()
-			# I pickle everything, so we can't have this recursing back
-			# to the first instance processed.
+		self.previous_image = previous_image
+		# I pickle everything, so we can't have this recursing back
+		# to the first instance processed.
+		if self.previous_image:
 			self.previous_image.previous_image = None
-			self.previous_image.camera = None
 
 		self.c_id = camera.c_id
 		self.nx = camera.nx
@@ -106,7 +75,7 @@ class Image:
 		self.skip_bc_night = False
 		self.error = ""
 
-#		self.dump_self()
+		self.dump_image()
 
 	def undistort( image, rgb=True, day_only=True ):
 		print( "Start undistort" )
@@ -114,11 +83,9 @@ class Image:
 		#warnings.filterwarnings('ignore')
 
 		#print( "Start undistort" )
-		if image.undistorted and not image.reprocess["image"]:
+		if image.undistorted:
 			print( "already undistorted" )
 			return
-		else:
-			print( image.undistorted, image.reprocess["image"] )
 
 		cam = image.camera
 		# get image acquisition time
@@ -198,19 +165,18 @@ class Image:
 			image.rgb = im
 	
 		image.undistorted = True
-#		image.dump_self()
+		image.dump_image()
 
 	def cloud_mask( self ):
 		import warnings
 		#warnings.filterwarnings('ignore')
 		print( "Start cloud mask" )
-		if self.cloud_masked and not self.reprocess["image"]:
+		if self.cloud_masked:
 			print( "already cloud masked" )
 			return
 
 		if not self.previous_image:
 			print( "skipping cloud mask; no prev image" )
-			print( self.fn, self.prev_fn )
 			return
 
 		image0 = self.previous_image
@@ -269,22 +235,17 @@ class Image:
 		ncld = np.sum(cld)
 		nsky = np.sum(sky)
 	#       print(ncld/total_pixel,nsky/total_pixel);
-		self.sky_frac = ncld / total_pixel
-		self.cld_frac = nsky / total_pixel
 		if (ncld+nsky) <= 1e-2*total_pixel:
 			self.error = "ncld + nsky is less than 1% of the image"
-			print( self.error )
 			return;
 		elif (ncld < nsky) & (ncld <= 2e-2*total_pixel):
 			print( "CLEAR SKY" )
 			# clear sky
 			self.cm = cld.astype(np.uint8)
-			print( self.cm )
 			self.layers = 0
 			return
 		elif (ncld > nsky) & (nsky <= 2e-2*total_pixel):
 			# overcast sky
-			print( "Overcast Sky" )
 			self.cm = ((~sky)&(r1>0)).astype(np.uint8)
 			self.layers = 1
 			return
@@ -342,94 +303,11 @@ class Image:
 				step /= 4
 
 		self.layers = 1
-		if self.cm is None:
-			print( "failed to set cm" )
 
-#		self.dump_self()
+		self.dump_image()
 
-	def cloud_motion(self):
-		if self.v is not None and not self.reprocess["motion"]:
-			print( "Already found cloud vels" )
-			return
-
-		prev_img = self.previous_image
-
-		self.v = [[np.nan, np.nan]]
-		self.layers = 1
-
-		if prev_img is None:
-			# sometimes individual cameras are missing data
-			return
-
-
-		r1 = prev_img.red.astype(np.float32)
-		r1[r1<=0] = np.nan
-		r2 = self.red.astype(np.float32)
-		r2[r2<=0] = np.nan
-		err0 = r2-r1
-
-		dif = np.abs(err0)
-		# MAGIC CONSTANT 5,6,7,8
-		dif = st.rolling_mean2(dif,20)
-		semi_static = (abs(dif)<10) & (r1-127>100)
-		semi_static = morphology.binary_closing(semi_static, np.ones((10,10)))
-		semi_static = remove_small_objects(semi_static, min_size=200, in_place=True)
-		self.rgb[semi_static] = 0
-		r2[semi_static] = np.nan
-
-		if np.sum(self.cm>0) < 2e-2*self.nx*self.ny:
-			# no clouds
-			self.layers=0;
-		else:
-			dilated_cm = morphology.binary_dilation( self.cm, np.ones((15,15)) )
-			dilated_cm &= (r2>0)
-			[vy,vx,max_corr] = cloud_motion_math(
-			    r1, r2, mask1=r1>0, mask2=dilated_cm, ratio=0.7, threads=4
-			)
-
-			if np.isnan(vy):
-				self.layers=0;
-			else:
-				self.v = [[vy,vx]]
-				self.layers=1
-
-	def preprocess(self):
-		print( "Undistort" )
-		self.undistort()
-		if self.error:
-			print( "{} Image undistort failed: {}".format(
-			    self.c_id, self.error
-			) )
-			# log_bad_image(image)
-			return
-
-		print( "Mask" )
-		self.cloud_mask()
-
-		print( "Motion" )
-		self.cloud_motion()
-		self.dump_self()
-
-
-	def dump_self(self):
+	def dump_image(self):
 		Path( self.pic_dir ).mkdir( parents=True, exist_ok=True )
 		with open( self.pic_path, 'wb' ) as fh:
 			pickle.dump( self, fh, pickle.HIGHEST_PROTOCOL )
 
-def cloud_motion_math(im1, im2, mask1=None, mask2=None, ratio=0.7, threads=1):
-        """
-        Determine cloud motion 
-        Input: Images and masks for two frames
-        Output: Cloud motion vector, and max correlation
-        """
-        # use this routine if the inputs are raw images   
-        ny,nx=im2.shape
-        try:
-                corr = mncc.mncc( im1, im2, mask1=mask1, mask2=mask2, ratio_thresh=ratio, threads=threads )
-                max_idx = np.nanargmax(corr)
-                vy = max_idx//len(corr) - ny + 1
-                vx = max_idx%len(corr) - nx + 1
-                return [vy, vx, corr.ravel()[max_idx]]
-        except:
-                print( "Caught: " + str(traceback.format_exc()) )
-                return [np.nan, np.nan, np.nan]
