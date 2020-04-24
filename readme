@@ -1,0 +1,6 @@
+To update rolling.cython.*.so for a new system (it just refuses to import when I change environments), execute 
+	cd tools && python3 setup.py build_ext --inplace
+
+This code may or may not prove particularly useful; the configuration handler works fine and fulfills its mandate but the actual pipeline is missing some of the corrections Andrew made and I'm don't have records of which ones I do or do not have.
+
+It is designed so that the data pipeline should run just fine after arbitrary changes to the preprocessing / feature extraction code though which should make it easier to clean up that the previous version.

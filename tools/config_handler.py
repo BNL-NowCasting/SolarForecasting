@@ -10,47 +10,9 @@ import yaml
 #	reserved words
 #		(unnamed, metadata)
 #	readability
-#	make interactive editor less ridiculous
 
 # Configuration file to use if a value isn't passed
 CONF_F = "/home/tchapman/root/configs/config.yaml"
-
-### Interactive editor parameters
-argument_separator = " " # currently relevant only for 'set' 1/28/20
-# argument_separator = ":"
-pretty_cmds = [
-    'cd {path}', 'ls [path]', 'ls -r [path]', 'mk {dict}', 
-    'set {path/var}'+argument_separator+'{val}', 'exit', 'top', 
-    'options', 'help [cmd]', 'name [name]', 'rm {path/var}'
-]
-all_cmds = [
-    'cd', 'ls', 'ls -r', 'mk', 'set', 'exit', 'top', 'options', 
-    'help', 'name', 'rm'
-]
-
-cmd_dict = dict(zip(all_cmds, pretty_cmds))
-
-help_txt = {
-    "cd": "Move your pointer to the named dictionary",
-    "ls": "List all parameters and dictionaries in the current " +
-          "or passed dictionary.", 
-    "ls -r": "List all parameters and dictionaries in the current " +
-             "or passed dictionary recursively. This will loop forever " +
-             "if called on a dictionary with a loop; don't do that.",
-    "mk": "Create a new dictionary in the current dictionary with the " +
-          "given name.",
-    "set": "Set the paramter {var} equal to {val} in the configuration.",
-    "exit": "Save the current configuration and run whatever script " +
-            "initiated this.",
-    "top": "Return your pointer to the top dictionary of the " +
-           "configuration. Equivalent to 'cd /'",
-    "options": "List the valid commands.",
-    "help": "Provide a short description of the given command.",
-    "name": "If a value for [name] is passed, " +
-            "set the name this configuration is to be saved under. " +
-            "Otherwise, print the current name.",
-    "rm": "Remove {var} from the current or given dictionary"
-}
 
 # do string concatenation so I can use variables in the YAML files
 # this is automatically invoked by yaml.safe_load
@@ -237,150 +199,6 @@ def build_parser():
                          help="Shortcut to create {path_name} to {value}. Can be used multiple times. Cannot be used in conjuction with -n or -e" )
     return parser
 
-### Editor methods
-
-# get a valid command from the user and split it into the command
-# and a string of arguments
-def get_cmd():
-    cmd = None 
-    while True:
-        print( ">>> ", end="" )
-        cmd = input().strip().lower()
-        n = 0
-        for c in all_cmds:
-            if len(c) > n:
-                n = len(c)
-        while n > 0:
-            if len(cmd) >= n and cmd[:n] in all_cmds:
-                return [cmd[:n], cmd[n:].strip()]
-            n -= 1
-        print( "Invalid command " + cmd )
-        options()
-
-def options():
-    print( "Options: [{}]".format(", ".join(pretty_cmds)) )
-
-def show_help( cmd ):
-    if not cmd:
-        print( "Type 'options' for a list of valid commands" )
-        print( "Type 'help [cmd]' for information about cmd" )
-    else:
-        print( "{}: {}".format(cmd_dict[cmd], help_txt[cmd]) )
-
-def follow_path( current_pointer, path, full_config ):
-    target = current_pointer
-    # start from the top for absolute paths
-    if len(path) and not path[0]:
-        target = full_config
-        path.pop(0)
-    # ignore trailing slashes
-    if len(path) and not path[-1]:
-        path.pop()
-
-    for d in path:
-        if d in target and isinstance(target[d], dict):
-            target = target[d]
-        else:
-            print( "No dictionary {}".format(d) )
-            target = current_pointer
-            break
-    return target
-
-# create a new configuration or edit an existing one
-def build_config( full_config, all_configs, config_f, name="", metadata={}, editing=False ):
-    if "metadata" in full_config:
-        del full_config["metadata"]
-
-    opts = all_cmds
-
-    print( "Welcome to the configuration builder" )
-    print( "Type 'help [option]', 'options', or 'exit' at any time" )
-    options()
-    pointer = full_config
-    while True:
-        [cmd, params] = get_cmd()
-        if params == "":
-            pieces = []
-        else:
-            # limit the number of parameters to 2 because
-            # that is currently the most any valid command takes
-            # and this way we can easily specify set var [v1, v2, ...]
-            pieces = params.split( argument_separator, 1 )
-
-        # special commands
-        if cmd == 'exit':
-            if name in all_configs and not editing:
-                print( "A configuration already exists with the name " + str(name) )
-                print( "Overwrite the existing configuration? Y|[n]: " )
-                resp = input().strip().lower()
-                if resp == "y":
-                    break
-            else:
-                break 
-        elif cmd == 'options':
-            options()
-        elif cmd == 'help':
-            help_target = pieces[0] if len(pieces) else ""
-            show_help( help_target )
-
-        # editing commands
-        if cmd == 'ls' or cmd == 'ls -r':
-            recurse = cmd == 'ls -r'
-            target = pointer
-            if len(pieces):
-                path = pieces[0].split( "/" )
-                target = follow_path( pointer, path, full_config )
-
-            print( dump_config( target, recurse=recurse) )
-        elif cmd == 'set':
-            if len(pieces) != 2:
-                show_help( 'set' )
-            else:
-                # TODO if path is invalid, don't set the value
-                path = pieces[0].split( "/" )
-                target = follow_path( pointer, path[:-1], full_config )
-                if not path[-1] in target:
-                    print( "Warning: adding new key {}".format(pieces[1]) )
-                target[path[-1]] = pieces[1]
-        elif cmd == 'top':
-            pointer = full_config
-        elif cmd == 'cd':
-            if len(pieces) != 1:
-                show_help('cd')
-            else:
-                path = pieces[0].split( "/" )
-                pointer = follow_path( pointer, path, full_config )
-        elif cmd == 'mk':
-            if len(pieces) != 1:
-                show_help('mk')
-            elif not pieces[0] in pointer:
-                pointer[pieces[0]] = {}
-        elif cmd == "name":
-            if not len(pieces) or pieces[0] == "":
-                print( "Name is set as: " + name )
-            elif editing:
-                print( "Name changes are not supported while editing configurations" )
-            else:
-                name = pieces[0]
-        elif cmd == 'rm':
-            if not len(pieces):
-                show_help( 'rm' )
-            else:
-                # TODO if path is invalid, don't set the value
-                path = pieces[0].split( "/" )
-                target = follow_path( pointer, path[:-1], full_config )
-                if not path[-1] in target:
-                    print( "No such key {} to remove.".format( pieces[0] ) )
-                else:
-                    del target[path[-1]]
-    
-    # remove any attributes that match default if save_full_configs is off
-    default = {} if all_configs["meta"]["save_full_configs"] else all_configs["default"]
-    diff = diff_config( full_config, default )
-
-    name = save_config( diff, config_f, name=name, metadata=metadata )
-    return name
-
 ### Public facing method
 # process given arguments and
 # construct and return a configuration accordingly
@@ -446,32 +264,6 @@ def handle_config(default_config_name="", metadata={}, parser=None, header=""):
         
         # reload the config to deal with some issues with how data
         # entered in the editor is interpreted (e.g arrays are strings)
-        return find_and_load_config( conf_name, config_f )
-    elif args.new or args.edit:
-        if args.edit:
-            target_name = args.edit
-            if not target_name in all_configs:
-                # this doesn't work if someone tries to edit a generated config
-                # but they shouldn't be edited; they're there for posterity
-                # and run replication
-                print( "Cannot edit {}; it is not an existing config. " + 
-                       "Try one of {}".format(
-                  target_name, ", ".join( [str(s) for s in all_configs.keys()] )
-                ) )
-                exit(1)
-
-            # build a new full_config using the loaded files
-            configs_to_load = [target_name] + loaded_conf_names
-            conf = find_and_load_configs( configs_to_load, config_f )
-        elif args.new:
-            target_name = args.new if args.new != "unnamed" else default_config_name
-            # build a new full_config using the loaded files
-            conf = find_and_load_configs( loaded_conf_names, config_f )
-
-        conf_name = build_config( conf, all_configs, config_f,
-          name=target_name, metadata=metadata, editing=args.edit )
-        # reload the config to deal with some issues with how data
-        # entered in the editor is interpreted (e.g. arrays are strings)
         return find_and_load_config( conf_name, config_f )
     else:
         # just load the given configurations and return their union
