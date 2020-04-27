@@ -119,13 +119,13 @@ try:
     lead_minutes=le(cp["forecast"]["lead_minutes"])
     days=le(cp["forecast"]["days"])
 
-    #lead_minutes=[1,3,5,10,15,30,45]; 
-    #sensors = np.arange(99,100)
+    GHI_Coor = le(cp["GHI_sensors"]["GHI_Coor"])   
     
     try:
         sensors = le(cp["forecast"]["sensors"])
     except Exception:
-        GHI_Coor = le(cp["GHI_sensors"]["GHI_Coor"])    #if sensor list isn't provided, forecast for all GHI points
+        sensors = range(0,len(GHI_Coor))    #if sensor list isn't provided, forecast for all GHI points
+
             
     gridspaces=int(cp["forecast"]["gridspaces"])
    
