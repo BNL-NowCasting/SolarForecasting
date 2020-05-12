@@ -16,7 +16,7 @@ from operator import concat
 import configparser
 from ast import literal_eval as le
 import warnings
-warnings.filterwarnings("ignore")
+#warnings.filterwarnings("ignore")
 import pytz
 
 SAVE_FIG=True

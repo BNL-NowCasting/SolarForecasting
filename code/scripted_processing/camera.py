@@ -232,8 +232,7 @@ class image:
                 im[:,:,i]=st.fill_by_mean2(im[:,:,i],7, ignore=0, mask=(im[:,:,i]==0) & (cam.valid))
 #                 im[:,:,i]=st.fill_by_mean2(im[:,:,i],7, ignore=0, mask=np.isnan(red))   
             im[self.red<=0]=0
-            
-#             plt.figure(); plt.imshow(im); plt.show()
+            plt.figure(); plt.imshow(im); plt.show()
             self.rgb=im               
 
 def cloud_mask(cam,img,img0):
@@ -470,8 +469,9 @@ def preprocess(cam,fn,outpath):
     flist=[fn_prev,fn]
     q=deque();      
     for f in flist:
-        img=image(cam,f);  ###img object contains four data fields: rgb, red, rbr, and cm 
-        img.undistort(cam,rgb=True);  ###undistortion
+        img=image(cam,f)  ###img object contains four data fields: rgb, red, rbr, and cm 
+        img.undistort(cam,rgb=True)  ###undistortion
+        print("undistorted: "+f)
         if img.rgb is None:
             return None
         q.append(img)  
@@ -479,7 +479,7 @@ def preprocess(cam,fn,outpath):
         if len(q)<=1: 
             continue
         ####len(q) is always 2 beyond this point
-        
+        print("deque two sequential images ",len(q))
         r1=q[-2].red.astype(np.float32); r1[r1<=0]=np.nan
         r2=q[-1].red.astype(np.float32); r2[r2<=0]=np.nan
         err0 = r2-r1;
@@ -505,31 +505,34 @@ def preprocess(cam,fn,outpath):
                 q[-1].layers=0;
             else:
                 q[-1].v += [[vy,vx]]; q[-1].layers=1;        
-            
-    #         err = r2-st.shift2(r1,-vx,-vy); err[(r2+st.shift2(r1,-vx,-vy)==0)]=np.nan;  
-    # 
-    #         mask2=st.rolling_mean2(np.abs(err)-np.abs(err0),40)<-2
-    #         mask2=remove_small_objects(mask2,min_size=300, in_place=True)
-    #         mask2=morphology.binary_dilation(mask2,np.ones((15,15)))
-    #         mask2 = (~mask2) & (r2>0) & (np.abs(r2-127)<30) & (err>-100) #& (q[-1].cm>0)
-    #         if np.sum(mask2 & (q[-1].cm>0))>200e-2*img.nx*img.ny:
-    #             vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=mask2, ratio=0.7, threads=4);
-    #             if np.isnan(vy):
-    #                 q.popleft(); 
-    #                 continue
-    #             vdist = np.sqrt((vy-q[-1].v[-1][0])**2+(vx-q[-1].v[-1][1])**2)
-    #             if vdist>=5 and np.abs(vy)+np.abs(vx)>2.5 and vdist>0.3*np.sqrt(q[-1].v[-1][0]**2+q[-1].v[-1][1]**2):
-    #                 score1=np.nanmean(np.abs(err[mask2])); 
-    #                 err2=r2-st.shift2(r1,-vx,-vy); err2[(r2==0) | (st.shift2(r1,-vx,-vy)==0)]=np.nan;  
-    #                 score2=np.nanmean(np.abs(err2[mask2]));
-    #                 if score2<score1:
-    #                     q[-1].v += [[vy,vx]]; q[-1].layers=2;
-    #                     dif=st.rolling_mean2(np.abs(err)-np.abs(err2),40)>0
-    #                     dif=remove_small_objects(dif,min_size=300, in_place=True)
-    #                     q[-1].cm[dif & (q[-1].cm>0)]=q[-1].layers; 
-       
-        q[-1].dump_img(outpath+f[-18:-10]+'/'+f[-23:-4]+'.pkl');
-        q.popleft();             
+        #         err = r2-st.shift2(r1,-vx,-vy); err[(r2+st.shift2(r1,-vx,-vy)==0)]=np.nan;  
+        # 
+        #         mask2=st.rolling_mean2(np.abs(err)-np.abs(err0),40)<-2
+        #         mask2=remove_small_objects(mask2,min_size=300, in_place=True)
+        #         mask2=morphology.binary_dilation(mask2,np.ones((15,15)))
+        #         mask2 = (~mask2) & (r2>0) & (np.abs(r2-127)<30) & (err>-100) #& (q[-1].cm>0)
+        #         if np.sum(mask2 & (q[-1].cm>0))>200e-2*img.nx*img.ny:
+        #             vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=mask2, ratio=0.7, threads=4);
+        #             if np.isnan(vy):
+        #                 q.popleft(); 
+        #                 continue
+        #             vdist = np.sqrt((vy-q[-1].v[-1][0])**2+(vx-q[-1].v[-1][1])**2)
+        #             if vdist>=5 and np.abs(vy)+np.abs(vx)>2.5 and vdist>0.3*np.sqrt(q[-1].v[-1][0]**2+q[-1].v[-1][1]**2):
+        #                 score1=np.nanmean(np.abs(err[mask2])); 
+        #                 err2=r2-st.shift2(r1,-vx,-vy); err2[(r2==0) | (st.shift2(r1,-vx,-vy)==0)]=np.nan;  
+        #                 score2=np.nanmean(np.abs(err2[mask2]));
+        #                 if score2<score1:
+        #                     q[-1].v += [[vy,vx]]; q[-1].layers=2;
+        #                     dif=st.rolling_mean2(np.abs(err)-np.abs(err2),40)>0
+        #                     dif=remove_small_objects(dif,min_size=300, in_place=True)
+        #                     q[-1].cm[dif & (q[-1].cm>0)]=q[-1].layers;
+        outpkl=os.path.join(outpath,f[-18:-10],f[-23:-4]+'.pkl')
+        print("Dumping "+outpkl)
+        try:
+            q[-1].dump_img(outpkl)
+        except:
+            print("Failed dumping "+outpkl)
+        q.popleft()             
 
     return q[-1]   
 
