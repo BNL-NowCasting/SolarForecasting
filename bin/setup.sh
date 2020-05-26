@@ -72,12 +72,24 @@ then
     # pyFFTW doesn't exist at anaconda, try pip instead.
     # upgrade pip
     pip install --upgrade pip
-    pip install pyFFTW
-    pip install pysolar
+    pip install pyFFTW pysolar pvlib
+    # link rolling.so from tools dir, possibly could be made into
+    # local pip install instead, for now make sure its uninstalled to
+    # avoid naming conflict
+    pip uninstall rolling
 fi
 
+# might want to make the release selectable from a list, e.g. git tag --list,
+# but I want to avoid using git commands as the nowcast user.
+# previous releases: 1.0 (Phase II), v1.0.1-alpha (test)
+: ${RELEASE:="1.1"}
 ( cd $DOWNLOAD
-    # get alpha release in dev branch
-    wget -nv https://github.com/BNL-NowCasting/SolarForecasting/archive/v1.0.1-alpha.tar.gz
+  wget -nv https://github.com/BNL-NowCasting/SolarForecasting/archive/${RELEASE}.tar.gz
 )
-tar xzf ${DOWNLOAD}/v1.0.1-alpha.tar.gz
+tar xzf ${DOWNLOAD}/${RELEASE}.tar.gz
+if [ -L "release" ]
+then
+    rm release
+fi
+ln -s SolarForecasting-${RELEASE} release
+ln -s ../../tools/rolling/rolling.cpython-35m-x86_64-linux-gnu.so release/code/scripted_processing/.

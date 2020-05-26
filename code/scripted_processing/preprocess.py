@@ -10,6 +10,7 @@ from scipy.ndimage import morphology,filters, sobel  ####more efficient than ski
 from skimage.morphology import remove_small_objects
 from collections import deque
 import multiprocessing,subprocess,pickle
+import logging,logging.config
 import time, geo
 from functools import reduce
 from operator import concat
@@ -32,7 +33,7 @@ def height(args_list, cores):
     for args in args_list:
         imager,neighbors,day=args 
         ymd=day[:8]
-        print('\t'+inpath+imager.camID+'/'+ymd+'/')
+        logger.info('\t'+inpath+imager.camID+'/'+ymd+'/')
         flist = sorted(glob.glob(inpath+imager.camID+'/'+ymd+'/'+imager.camID+'_'+day+'*jpg'))
         
         if (REPROCESS==False):
@@ -44,11 +45,11 @@ def height(args_list, cores):
                     flist.remove(inpath+imager.camID+'/'+ymd+'/'+f[-23:-4]+'.jpg')
                     #except Exception:
                     #    print("Mismatched processing.  Consider re-running with REPROCESS = true.")
-                print("\tSkipped %i files that were already processed for %s" % (len(flist_done),imager.camID))
+                logger.info("\tSkipped %i files that were already processed for %s", len(flist_done),imager.camID)
                 
                 
         
-        print("\tFound %i image files for %s" % (len(flist),imager.camID))
+        logger.info("\tFound %i image files for %s", len(flist),imager.camID)
         if len(flist)<=0:
             continue    
         mp_args=[[args, f] for f in flist]    
@@ -83,13 +84,13 @@ def height_MP(mp_args):
     #if os.path.isfile(tmpfs+f[-18:-10]+'/'+basename+'.hkl') and (~REPROCESS):  ######already processed, skip
     #    return          
     
-    print('Processing', basename)
-    print("Full name: %s" % tmpfs+f[-18:-10]+'/'+basename+'*pkl')
+    logger.debug('Processing %s', basename)
+    logger.debug("Full name: %s", tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     fpickle = glob.glob(tmpfs+f[-18:-10]+'/'+basename+'*pkl')
     img=None
     #print("len(fpickle)=%i" % len(fpickle))
     if len(fpickle)<=0:
-        print("\tPreprocessing\n")
+        logger.debug("\tPreprocessing")
         img=cam.preprocess(imager,f,tmpfs);
     else:
         with open(fpickle[0],'rb') as input:
@@ -131,8 +132,8 @@ def height_MP(mp_args):
                 res=cam.cloud_height(img,img1,layer=ih+1, distance=distance)
                 if np.isfinite(res) and res<20*distance and res>0.5*distance:
                     h[ih]=int(res);
-                    print('Cloud height computed for', f[-23:]);
-                    print('Cloud layer',ih+1,':',res,' computed with cameras ',img.camID,img1.camID,'(distance:',distance,'m)')
+                    logger.debug('Cloud height computed for %s', f[-23:]);
+                    logger.debug('Cloud layer %i:%f computed with cameras %s, %s (disctance: %f m)',ih+1,res,img.camID,img1.camID,distance)
 
                     #if not SAVE_FIG:
                     fig,ax=plt.subplots(2,2,figsize=(10,10),sharex=True,sharey=True);
@@ -152,7 +153,6 @@ def height_MP(mp_args):
 
 
 if __name__ == "__main__":
-
     try:
         try:
             config_path = sys.argv[1]
@@ -160,8 +160,18 @@ if __name__ == "__main__":
             config_path = "./config.conf"
         cp = configparser.ConfigParser()
         cp.read(config_path)
-
-
+        logfile=os.path.join(le(cp["paths"]["log_path"]),'preprocessing.log')
+        # configure logging: it is recommended to use dictConfig now, e.g. by
+        # reading a dict from a yaml config file, multiprocessing requires setting
+        # up logging queues and running a queue listener in a separate process or
+        # thread
+        logger=multiprocessing.get_logger()
+        logger.setLevel(logging.DEBUG)
+        fh=logging.FileHandler(logfile)
+        fh.setLevel(logging.DEBUG)
+        formatter=logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
         all_cams=le(cp["cameras"]["all_cams"])
         height_group=le(cp["cameras"]["height_group"])
         stitch_pair=le(cp["cameras"]["stitch_pair"])
@@ -196,10 +206,10 @@ if __name__ == "__main__":
         
         try:
             cam_tz=pytz.timezone(cp["cameras"]["cam_timezone"])
-            print("Using camera timezone: %s" % str(cam_tz))
+            logger.info("Using camera timezone: %s", str(cam_tz))
         except Exception:
             cam_tz=pytz.timezone("utc")    
-            print("Error processsing cameara timezone config, assuming UTC")
+            logger.warning("Error processing camera timezone config, assuming UTC")
         
         try:
             cores_to_use = int(cp["server"]["cores_to_use"])
@@ -207,7 +217,7 @@ if __name__ == "__main__":
             cores_to_use = 20
 
     except KeyError as e:
-        print("Error loading config: %s" % e)
+        logger.error("Error loading config: %s", e)
         
     plt.ioff()  #Turn off interactive plotting for running automatically
 
@@ -220,13 +230,13 @@ if __name__ == "__main__":
     y_cams=(lat0-cameras['HD1B'].lat)*deg2km  
 
     
-    print("DAYS: %s" % days)
+    logger.info("DAYS: %s", days)
     for day in days:
         if not os.path.isdir(stitch_path+day[:8]):
             try:
                 subprocess.call(['mkdir', stitch_path+day[:8]]) 
             except:
-                print('Cannot create directory,',stitch_path+day[:8])
+                logger.error('Cannot create directory: %s',stitch_path+day[:8])
                 continue 
                 
     #p = multiprocessing.Pool(len(cid_flat)) 
@@ -235,14 +245,11 @@ if __name__ == "__main__":
            try:
                subprocess.call(['mkdir', tmpfs+day[:8]]) 
            except:
-               print('Cannot create directory,',tmpfs+day[:8])
+               logger.error('Cannot create directory: %s',tmpfs+day[:8])
                continue  
 #         args=[[[camID for camID in camg], day] for camg in camIDs]    
-       print("Running Preprocessing/Height for: %s" % day)
+       logger.info("Running Preprocessing/Height for: %s", day)
        args=[[cameras[camID], [cameras[cmr] for cmr in height_group[camID]], day] for camID in cid_flat]
        height(args, cores_to_use)  
     #p.close()
     #p.join()
-    
-
-

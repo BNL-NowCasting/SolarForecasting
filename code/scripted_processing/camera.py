@@ -13,13 +13,15 @@ from collections import deque
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 import pytz
+import logging
 
-BND_WIN = 20;
+BND_WIN = 20
 BND_RED_THRESH, BND_RBR_THRESH  = 2/1.5, 0.012/2
 DRED_THRESH, DRBR_THRESH = 150, 157
 STD_RED_THRESH, STD_RBR_THRESH = 1.2, 0.012
 
-#static_mask_path='/home/dhuang3/ldata/masks/'  
+#static_mask_path='/home/dhuang3/ldata/masks/'
+# this is now set in config.conf file
 
 coordinate = {'HD2C':[40.87203321,-72.87348295],'HD815_2':[40.87189059,-72.873687],\
                'HD490':[40.865968816,-72.884647222], 'HD1B':[40.8575056,-72.8547344], \
@@ -67,12 +69,12 @@ class camera:
         
         try:   #####check if the camera object is precomputed  
             with open(static_mask_path+camID+'.'+str(nx)+'.pkl','rb') as input:
-                self.__dict__=pickle.load(input).__dict__;
+                self.__dict__=pickle.load(input).__dict__
                 self.cam_tz = cam_tz
 #             print(self.camID,self.nx)
             return 
         except:
-            pass;
+            pass
          
         self.cam_tz = cam_tz
         self.camID=camID
@@ -85,8 +87,8 @@ class camera:
         self.max_theta=max_theta
         
         #####compute the zenith and azimuth angles for each pixel
-        x0,y0=np.meshgrid(np.linspace(-self.nx0//2,self.nx0//2,self.nx0),np.linspace(-self.ny0//2,self.ny0//2,self.ny0)); 
-        r0=np.sqrt(x0**2+y0**2)/nr0;
+        x0,y0=np.meshgrid(np.linspace(-self.nx0//2,self.nx0//2,self.nx0),np.linspace(-self.ny0//2,self.ny0//2,self.ny0))
+        r0=np.sqrt(x0**2+y0**2)/nr0
         self.roi=np.s_[ystart:ystart+self.ny0,xstart:xstart+self.nx0]
         self.rotation,self.beta,self.azm=params[camID][3:6]
         
@@ -102,7 +104,7 @@ class camera:
 
         #####correction for the mis-pointing error
         k=np.array((np.sin(self.azm),np.cos(self.azm),0))
-        a=np.array([np.sin(theta0)*np.cos(phi0),np.sin(theta0)*np.sin(phi0),np.cos(theta0)]); 
+        a=np.array([np.sin(theta0)*np.cos(phi0),np.sin(theta0)*np.sin(phi0),np.cos(theta0)])
         a = np.transpose(a,[1,2,0])
         b=np.cos(self.beta)*a + np.sin(self.beta)*np.cross(k,a,axisb=2) \
           + np.reshape(np.outer(np.dot(a,k),k),(self.ny0,self.nx0,3))*(1-np.cos(self.beta))
@@ -110,8 +112,8 @@ class camera:
         phi0=np.arctan2(b[:,:,1],b[:,:,0])%(2*np.pi)
 
         max_theta *= deg2rad 
-        valid0 = (theta0<max_theta) & (theta0>0); 
-#         theta0[valid0]=np.nan;
+        valid0 = (theta0<max_theta) & (theta0>0)
+#         theta0[valid0]=np.nan
         self.theta0,self.phi0=theta0,phi0
         
         self.nx,self.ny=nx,ny
@@ -122,23 +124,23 @@ class camera:
         self.valid = rgrid <= max_tan*max_tan
         self.cos_th=1/np.sqrt(1+rgrid)
         rgrid=np.sqrt(rgrid)
-        self.cos_p=ygrid/rgrid;  
-        self.sin_p=xgrid/rgrid;  
+        self.cos_p=ygrid/rgrid
+        self.sin_p=xgrid/rgrid
         self.max_tan=max_tan        
         
         x,y=theta0+np.nan, theta0+np.nan
-        r=np.tan(theta0[valid0]); 
+        r=np.tan(theta0[valid0])
         x[valid0],y[valid0]=r*np.sin(phi0[valid0]), r*np.cos(phi0[valid0])
         
         try:
             invalid=np.load(static_mask_path+self.camID+'_mask.npy')
             if (self.nx<=1000):
                 tmp=st.block_average2(invalid.astype(np.float32),2)
-                self.valid &= (tmp<0.2);
+                self.valid &= (tmp<0.2)
         except:
-            pass;
+            pass
         
-        self.weights=st.prepare_bin_average2(x,y,xbin,ybin); 
+        self.weights=st.prepare_bin_average2(x,y,xbin,ybin)
     
         with open(static_mask_path+camID+'.'+str(nx)+'.pkl', 'wb') as output:  # Overwrites any existing file.
             pickle.dump(self, output, pickle.HIGHEST_PROTOCOL)
@@ -176,32 +178,32 @@ class image:
         #ts=localToUTCtimestamp(datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S'),cam.cam_tz)    #get UTC timestamp
         #t_std=UTCtimestampTolocal(ts, pytz.timezone("UTC"))                                      #create datetime in UTC
         t_std = localToUTC(datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S'),self.cam_tz)
-        #t_std=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S');
+        #t_std=datetime.strptime(self.fn[-18:-4],'%Y%m%d%H%M%S')
         #t_std = t_local + timedelta(hours=5) #replace(tzinfo=timezone(-timedelta(hours=5)))       
         #print("\tUndistortion->t_local=%s\t\tt_std=%s\n" % (str(t_local),str(t_std)))
         print("\tUndistortion->t_std=%s\n" % (str(t_std)))
-        gatech = ephem.Observer(); 
+        gatech = ephem.Observer()
         gatech.date = t_std.strftime('%Y/%m/%d %H:%M:%S')
         gatech.lat, gatech.lon = str(self.lat),str(self.lon)
-        sun=ephem.Sun()  ; sun.compute(gatech);        
-        sz = np.pi/2-sun.alt; 
+        sun=ephem.Sun()  ; sun.compute(gatech)
+        sz = np.pi/2-sun.alt
         self.sz = sz
         if day_only and sz>75*deg2rad:
             print("Night time (sun angle = %f), skipping\n" % sz)
             return
              
-        saz = 180+sun.az/deg2rad; saz=(saz%360)*deg2rad;
+        saz = 180+sun.az/deg2rad; saz=(saz%360)*deg2rad
         self.saz = saz
 
         try:
-            im0=plt.imread(self.fn);
+            im0=plt.imread(self.fn)
         except:
             print('Cannot read file:', self.fn)
             return None     
         im0=im0[cam.roi]
 
         cos_sz=np.cos(sz)        
-        cos_g=cos_sz*np.cos(cam.theta0)+np.sin(sz)*np.sin(cam.theta0)*np.cos(cam.phi0-saz);   
+        cos_g=cos_sz*np.cos(cam.theta0)+np.sin(sz)*np.sin(cam.theta0)*np.cos(cam.phi0-saz)
         
         red0=im0[:,:,0].astype(np.float32); red0[red0<=0]=np.nan
 #         rbr0=(red0-im0[:,:,2])/(im0[:,:,2]+red0)     
@@ -214,25 +216,25 @@ class image:
 
         invalid=~cam.valid
         
-        red=st.fast_bin_average2(red0,cam.weights);
+        red=st.fast_bin_average2(red0,cam.weights)
         red=st.fill_by_mean2(red,7, mask=(np.isnan(red)) & cam.valid)        
-        red[invalid]=np.nan; 
-#         plt.figure(); plt.imshow(red); plt.show();
+        red[invalid]=np.nan
+#         plt.figure(); plt.imshow(red); plt.show()
         red -= st.rolling_mean2(red,int(self.nx//6.666))
         red[red>50]=50; red[red<-50]=-50
-        red=(red+50)*2.54+1;         
-        red[invalid]=0;        
+        red=(red+50)*2.54+1
+        red[invalid]=0
         self.red=red.astype(np.uint8)
-#         plt.figure(); plt.imshow(self.red); plt.show();
+#         plt.figure(); plt.imshow(self.red); plt.show()
 
         if rgb:             
             im=np.zeros((self.ny,self.nx,3),dtype=im0.dtype)   
             for i in range(3):
-                im[:,:,i]=st.fast_bin_average2(im0[:,:,i],cam.weights); 
+                im[:,:,i]=st.fast_bin_average2(im0[:,:,i],cam.weights)
                 im[:,:,i]=st.fill_by_mean2(im[:,:,i],7, ignore=0, mask=(im[:,:,i]==0) & (cam.valid))
 #                 im[:,:,i]=st.fill_by_mean2(im[:,:,i],7, ignore=0, mask=np.isnan(red))   
             im[self.red<=0]=0
-            plt.figure(); plt.imshow(im); plt.show()
+#            plt.figure(); plt.imshow(im); plt.show()
             self.rgb=im               
 
 def cloud_mask(cam,img,img0):
@@ -250,19 +252,19 @@ def cloud_mask(cam,img,img0):
     r0=img0.rgb[...,0].astype(np.float32); r0[r0<=0]=np.nan
     r1=img.rgb[...,0].astype(np.float32); r1[r1<=0]=np.nan
     rbr_raw=(r1-img.rgb[:,:,2])/(img.rgb[:,:,2]+r1)    
-    rbr=rbr_raw.copy();
+    rbr=rbr_raw.copy()
     rbr -= st.rolling_mean2(rbr,int(img.nx//6.666))
-    rbr[rbr>0.08]=0.08; rbr[rbr<-0.08]=-0.08;
+    rbr[rbr>0.08]=0.08; rbr[rbr<-0.08]=-0.08
     rbr=(rbr+0.08)*1587.5+1;    ####scale rbr to 0-255
-    mblue=np.nanmean(img.rgb[(cos_g<0.7) & (r1>0) & (rbr_raw<-0.01),2].astype(np.float32));
+    mblue=np.nanmean(img.rgb[(cos_g<0.7) & (r1>0) & (rbr_raw<-0.01),2].astype(np.float32))
     err = r1-r0; err-=np.nanmean(err)    
     dif=st.rolling_mean2(abs(err),100)
     err=st.rolling_mean2(err,5)
     dif2=maximum_filter(np.abs(err),5)
     
     sky=(rbr<126) & (dif<1.2); sky|=dif<0.9; sky |= (dif<1.5) & (err<3) & (rbr<105)
-    sky|=(rbr<70) ; sky &=  (img.red>0); 
-    cld=(dif>2) & (err>4); cld |= (img.red>150) & (rbr>160) & (dif>3); 
+    sky|=(rbr<70) ; sky &=  (img.red>0)
+    cld=(dif>2) & (err>4); cld |= (img.red>150) & (rbr>160) & (dif>3)
     cld |= (rbr>180);   ####clouds with high rbr
     cld[cos_g>0.7]|=(img.rgb[cos_g>0.7,2]<mblue) & (rbr_raw[cos_g>0.7]>-0.01);  #####dark clouds
     cld &= dif>3
@@ -276,7 +278,7 @@ def cloud_mask(cam,img,img0):
     
     # these threshholds don't strictly need to match those used in forecasting / training
     if (ncld+nsky)<=1e-2*total_pixel:
-        return;
+        return
     elif (ncld < nsky) and (ncld<=5e-2*total_pixel):   #####shortcut for clear or totally overcast conditions        
         img.cm=cld.astype(np.uint8)
         img.layers=1
@@ -286,17 +288,17 @@ def cloud_mask(cam,img,img0):
         img.layers=1
         return       
     max_score=-np.Inf
-    x0=-0.15; 
+    x0=-0.15
     ncld,nsky=0.25*nsky+0.75*ncld,0.25*ncld+0.75*nsky
 #     ncld=max(ncld,0.05*total_pixel); nsky=max(nsky,0.05*total_pixel)
     for slp in [0.1,0.15]:     
-        offset=np.zeros_like(r1);
-        mk=cos_g<x0; offset[mk]=(x0-cos_g[mk])*0.05;
+        offset=np.zeros_like(r1)
+        mk=cos_g<x0; offset[mk]=(x0-cos_g[mk])*0.05
         mk=(cos_g>=x0) & (cos_g<0.72); offset[mk]=(cos_g[mk]-x0)*slp
-        mk=(cos_g>=0.72); offset[mk]=slp*(0.72-x0)+(cos_g[mk]-0.72)*slp/3;
-        rbr2=rbr_raw-offset;
+        mk=(cos_g>=0.72); offset[mk]=slp*(0.72-x0)+(cos_g[mk]-0.72)*slp/3
+        rbr2=rbr_raw-offset
         minr,maxr=st.lower_upper(rbr2[rbr2>-1],0.01)            
-        rbr2 -= minr; rbr2/=(maxr-minr);
+        rbr2 -= minr; rbr2/=(maxr-minr)
         
         lower,upper,step=-0.1,1.11,0.2
         max_score_local=-np.Inf
@@ -315,12 +317,12 @@ def cloud_mask(cam,img,img0):
                     thresh_ref=thresh
                     if score>max_score:
                         max_score=score
-                        img.cm=mk_cld.astype(np.uint8);
-#                         rbr_ref=rbr2.copy();                        
+                        img.cm=mk_cld.astype(np.uint8)
+#                         rbr_ref=rbr2.copy()
 #                         sc_ref=sc.copy()     
 #                 print(slp,iter,lower,upper,step,score)
             lower,upper=thresh_ref-0.5*step,thresh_ref+0.5*step+0.001
-            step/=4;        
+            step/=4
           
 #         lower,upper=st.lower_upper(rbr2[img.red>0],0.02)  
 ##         print(lower,upper)
@@ -333,17 +335,17 @@ def cloud_mask(cam,img,img0):
 #             score=np.nansum(sc)
 #             if score>max_score:
 #                 max_score=score
-#                 img.cm=mk_cld.astype(np.uint8); 
-#                 rbr_ref=rbr2.copy();
+#                 img.cm=mk_cld.astype(np.uint8)
+#                 rbr_ref=rbr2.copy()
 #                 sc_ref=sc.copy() 
 # #             print(slp,score)    
     
-    img.layers=1;
+    img.layers=1
 
 #     print(img.camID,img.fn[-18:-4],np.round(max_score,3),np.round(sc_ref,3))
 #     mblue=np.round(mblue,2)
-#     fig,ax=plt.subplots(2,3,sharex=True,sharey=True);  ax[0,0].set_title(str(mblue));
-#     ax[0,0].imshow(img.rgb); ax[0,1].imshow(rbr_raw,vmax=0.05); ax[0,2].imshow(img.cm); 
+#     fig,ax=plt.subplots(2,3,sharex=True,sharey=True);  ax[0,0].set_title(str(mblue))
+#     ax[0,0].imshow(img.rgb); ax[0,1].imshow(rbr_raw,vmax=0.05); ax[0,2].imshow(img.cm)
 #     ax[1,0].imshow(err,vmin=-8,vmax=8);  ax[1,1].imshow(sky); ax[1,2].imshow(cld); plt.show()         
     
 def cloud_motion_fft(convolver,fft1,fft2,ratio=0.75):
@@ -372,9 +374,9 @@ def cloud_motion(im1,im2,mask1=None, mask2=None,ratio=0.7, threads=1):
 ####use this routine if the inputs are raw images   
     ny,nx=im2.shape 
 #     if im1.dtype == np.uint8:
-#         im1 = im1.astype(np.float32);
+#         im1 = im1.astype(np.float32)
 #     if im2.dtype == np.uint8:
-#         im2 = im2.astype(np.float32);
+#         im2 = im2.astype(np.float32)
     try:
         corr=mncc.mncc(im1,im2,mask1=mask1,mask2=mask2,ratio_thresh=ratio,threads=threads)     
 #         plt.figure(); plt.imshow(corr); plt.show()    
@@ -394,9 +396,9 @@ def cloud_motion_fast(im1,im2,mask1=None, mask2=None,ratio=0.7, threads=1):
 ####use this routine if the inputs are raw images   
     ny,nx=im2.shape 
 #     if im1.dtype == np.uint8:
-#         im1 = im1.astype(np.float32);
+#         im1 = im1.astype(np.float32)
 #     if im2.dtype == np.uint8:
-#         im2 = im2.astype(np.float32);
+#         im2 = im2.astype(np.float32)
     try:
         corr=mncc.mncc(im1,im2,mask1=mask1,mask2=mask2,ratio_thresh=ratio,threads=threads)     
 #         plt.figure(); plt.imshow(corr); plt.show()    
@@ -416,8 +418,8 @@ def cloud_height(img1,img2,layer=0,distance=None):
         return []
         
     if img1.max_theta != img2.max_theta:
-        print("The max_theta of the two cameras is different.");
-        return np.nan, np.nan;
+        print("The max_theta of the two cameras is different.")
+        return np.nan, np.nan
     if distance is None:
         distance = 6367e3*geo.distance_sphere(img1.lat,img1.lon,img2.lat,img2.lon)  
 
@@ -430,7 +432,7 @@ def cloud_height(img1,img2,layer=0,distance=None):
 #     mask_tmpl=(img1.cm==layer) 
     mask_tmpl=(img1.cm==1) if layer==1 else (~(img1.cm==1) & (im1>0))           
         
-    res = np.nan;
+    res = np.nan
     try:
         corr=mncc.mncc(im2,im1,mask1=im2>0,mask2=mask_tmpl,ratio_thresh=0.5)       
         if np.any(corr>0):
@@ -438,19 +440,19 @@ def cloud_height(img1,img2,layer=0,distance=None):
             deltay,deltax=max_idx//len(corr)-img2.ny+1,max_idx%len(corr)-img2.nx+1            
             deltar=np.sqrt(deltax**2+deltay**2)            
             height=distance/deltar*img1.nx/(2*max_tan)
-            score=st.shift_2d(im1,deltax,deltay); score[score<=0]=np.nan; 
+            score=st.shift_2d(im1,deltax,deltay); score[score<=0]=np.nan
             score-=im2; score=np.nanmean(np.abs(score[(im2>0)]))
             score0=np.abs(im2-im1); score0=np.nanmean(score0[(im2>0) & (im1>0)])
 #             print('Height',img1.camID,img2.camID,deltay,deltax,height,score0,score)
-#             fig,ax=plt.subplots(1,2,sharex=True,sharey=True);  ax[0].set_title(str(deltax)+','+str(deltay));
-#             ax[0].imshow(im2); ax[1].imshow(im1); plt.show();            
+#             fig,ax=plt.subplots(1,2,sharex=True,sharey=True);  ax[0].set_title(str(deltax)+','+str(deltay))
+#             ax[0].imshow(im2); ax[1].imshow(im1); plt.show()
             if score0-score<=0.3*score0:
                 res=np.nan
             else:
                 res = min(13000,height)
 
     except:
-        print('Cannot determine cloud height.');
+        print('Cannot determine cloud height.')
 #     print(np.nanmax(corr),height,deltay, deltax)
     return res             
          
@@ -458,16 +460,16 @@ def cloud_height(img1,img2,layer=0,distance=None):
 def preprocess(cam,fn,outpath):
     if not os.path.isdir(outpath+fn[-18:-10]):
         os.makedirs(outpath+fn[-18:-10])
-    t=localToUTC(datetime.strptime(fn[-18:-4],'%Y%m%d%H%M%S'),cam.cam_tz); 
-    t_prev=t-timedelta(seconds=30);
-    t_prev=t_prev.strftime('%Y%m%d%H%M%S');
-    fn_prev=fn.replace(fn[-18:-4],t_prev);
+    t=localToUTC(datetime.strptime(fn[-18:-4],'%Y%m%d%H%M%S'),cam.cam_tz)
+    t_prev=t-timedelta(seconds=30)
+    t_prev=t_prev.strftime('%Y%m%d%H%M%S')
+    fn_prev=fn.replace(fn[-18:-4],t_prev)
     if len(glob.glob(fn_prev))<=0:
         return None
 
     print("\tpreprocess->fn=%s\n\t\tt=%s\t\tt_prev=%s\n" % (fn, str(t), str(t_prev)))
     flist=[fn_prev,fn]
-    q=deque();      
+    q=deque()
     for f in flist:
         img=image(cam,f)  ###img object contains four data fields: rgb, red, rbr, and cm 
         img.undistort(cam,rgb=True)  ###undistortion
@@ -482,50 +484,50 @@ def preprocess(cam,fn,outpath):
         print("deque two sequential images ",len(q))
         r1=q[-2].red.astype(np.float32); r1[r1<=0]=np.nan
         r2=q[-1].red.astype(np.float32); r2[r2<=0]=np.nan
-        err0 = r2-r1;
+        err0 = r2-r1
        
-        dif=np.abs(err0); 
+        dif=np.abs(err0)
         dif=st.rolling_mean2(dif,20)
         semi_static=(abs(dif)<10) & (r1-127>100)
         semi_static=morphology.binary_closing(semi_static,np.ones((10,10)))
         semi_static=remove_small_objects(semi_static,min_size=200, in_place=True)
-        q[-1].rgb[semi_static]=0;
+        q[-1].rgb[semi_static]=0
         r2[semi_static]=np.nan
 
         cloud_mask(cam,q[-1],q[-2]); ###one-layer cloud masking        
         if (q[-1].cm is None):
-            q.popleft();             
+            q.popleft()
             continue
         if (np.sum((q[-1].cm>0))<2e-2*img.nx*img.ny):   ######cloud free case
-            q[-1].layers=0; 
+            q[-1].layers=0
         else:               
             dilated_cm=morphology.binary_dilation(q[-1].cm,np.ones((15,15))); dilated_cm &= (r2>0)
-            vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=dilated_cm, ratio=0.7, threads=4);
+            vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=dilated_cm, ratio=0.7, threads=4)
             if np.isnan(vy):  
-                q[-1].layers=0;
+                q[-1].layers=0
             else:
-                q[-1].v += [[vy,vx]]; q[-1].layers=1;        
-        #         err = r2-st.shift2(r1,-vx,-vy); err[(r2+st.shift2(r1,-vx,-vy)==0)]=np.nan;  
+                q[-1].v += [[vy,vx]]; q[-1].layers=1
+        #         err = r2-st.shift2(r1,-vx,-vy); err[(r2+st.shift2(r1,-vx,-vy)==0)]=np.nan
         # 
         #         mask2=st.rolling_mean2(np.abs(err)-np.abs(err0),40)<-2
         #         mask2=remove_small_objects(mask2,min_size=300, in_place=True)
         #         mask2=morphology.binary_dilation(mask2,np.ones((15,15)))
         #         mask2 = (~mask2) & (r2>0) & (np.abs(r2-127)<30) & (err>-100) #& (q[-1].cm>0)
         #         if np.sum(mask2 & (q[-1].cm>0))>200e-2*img.nx*img.ny:
-        #             vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=mask2, ratio=0.7, threads=4);
+        #             vy,vx,max_corr = cloud_motion(r1,r2,mask1=r1>0,mask2=mask2, ratio=0.7, threads=4)
         #             if np.isnan(vy):
-        #                 q.popleft(); 
+        #                 q.popleft()
         #                 continue
         #             vdist = np.sqrt((vy-q[-1].v[-1][0])**2+(vx-q[-1].v[-1][1])**2)
         #             if vdist>=5 and np.abs(vy)+np.abs(vx)>2.5 and vdist>0.3*np.sqrt(q[-1].v[-1][0]**2+q[-1].v[-1][1]**2):
-        #                 score1=np.nanmean(np.abs(err[mask2])); 
-        #                 err2=r2-st.shift2(r1,-vx,-vy); err2[(r2==0) | (st.shift2(r1,-vx,-vy)==0)]=np.nan;  
-        #                 score2=np.nanmean(np.abs(err2[mask2]));
+        #                 score1=np.nanmean(np.abs(err[mask2]))
+        #                 err2=r2-st.shift2(r1,-vx,-vy); err2[(r2==0) | (st.shift2(r1,-vx,-vy)==0)]=np.nan
+        #                 score2=np.nanmean(np.abs(err2[mask2]))
         #                 if score2<score1:
-        #                     q[-1].v += [[vy,vx]]; q[-1].layers=2;
+        #                     q[-1].v += [[vy,vx]]; q[-1].layers=2
         #                     dif=st.rolling_mean2(np.abs(err)-np.abs(err2),40)>0
         #                     dif=remove_small_objects(dif,min_size=300, in_place=True)
-        #                     q[-1].cm[dif & (q[-1].cm>0)]=q[-1].layers;
+        #                     q[-1].cm[dif & (q[-1].cm>0)]=q[-1].layers
         outpkl=os.path.join(outpath,f[-18:-10],f[-23:-4]+'.pkl')
         print("Dumping "+outpkl)
         try:
