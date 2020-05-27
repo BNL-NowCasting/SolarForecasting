@@ -7,13 +7,13 @@ ME=$0
 MYDIR=`dirname $ME`
 MYDIR=`( cd $MYDIR; pwd )`
 # try letting python find the rolling.so module in the tools
-#: ${PYTHONPATH:="/home/nowcast/release/tools"}
+#: ${PYTHONPATH:="${HOME}/release/tools"}
 # for now use symlink instead because there are differences between the
 # stat_tools in scripted_processing (Andrew) and the one in "tools" (Theo)
 : ${CONF:="$MYDIR/config.conf"}
-: ${RELEASE:="/home/nowcast/release/code/scripted_processing"}
+: ${RELEASE:="${HOME}/release/code/scripted_processing"}
 : ${PROCESSES:="preprocess generate_stitch extract_features predict"}
-: ${DATAROOT:="/home/nowcast/data/bnl"}
+: ${DATAROOT:="${HOME}/data/bnl"}
 : ${SERVERROOT:="solar-db.bnl.gov:data/bnl"}
 function die() {
     echo "$@" 1>2
@@ -30,6 +30,17 @@ case $# in
     2) DAY1=$1; NDAYS=$2;;
     *) die "need 2 arguments";;
 esac
+# if HOME is not /home/nowcast, need to update in config.conf
+if [ ${HOME} != "/home/nowcast" ]
+then
+    ed $MYDIR/config.conf <<EOF
+/^HOME=/c
+HOME=${HOME}
+.
+,w
+q
+EOF
+fi
 T=`date -d $DAY1 +'%s'`
 DAYSTR="days=['$DAY1'"
 IDAY=1
@@ -58,12 +69,18 @@ EOF
 declare -a DAYS
 eval `echo $DAYSTR |sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/days=/DAYS=/'`
 ( cd $DATAROOT/images
-# assume dirs for each camera already exist
-CAMS=( `echo *` )
-for CAM in "${CAMS[@]}"; do ( cd $CAM; for DAY in "${DAYS[@]}"; do rsync -au ${SERVERROOT}/images/$CAM/$DAY .; done ; ) ; done
+  # need to grep all_cams from config.conf and mkdir if necessary
+  eval `grep "^all_cams=" $CONF|sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/all_cams=/CAMS=/'`
+for CAM in "${CAMS[@]}"; do ( mkdir -p $CAM; cd $CAM; for DAY in "${DAYS[@]}"; do rsync -au ${SERVERROOT}/images/$CAM/$DAY .; done ; ) ; done
 )
+GHIDIRS=`{
+    for DAY in "${DAYS[@]}"
+    do
+	echo $DAY|cut -c1-6
+    done
+    } | sort |uniq`
 
-GHI_new="/home/nowcast/data/bnl/GHI_new/201812/GHI_25.npz"
+GHI_new="${HOME}/data/bnl/GHI_new/201812/GHI_25.npz"
 # Need to run GHI_processing if .npz file doesn't exist yet.
 
 [ -r "$GHI_new" ] || PROCESSES="GHI_preprocessing $PROCESSES"
