@@ -11,10 +11,11 @@ MYDIR=`( cd $MYDIR; pwd )`
 # for now use symlink instead because there are differences between the
 # stat_tools in scripted_processing (Andrew) and the one in "tools" (Theo)
 : ${CONF:="$MYDIR/config.conf"}
+: ${SITE:="bnl"}
 : ${RELEASE:="${HOME}/release/code/scripted_processing"}
 : ${PROCESSES:="preprocess generate_stitch extract_features predict"}
-: ${DATAROOT:="${HOME}/data/bnl"}
-: ${SERVERROOT:="solar-db.bnl.gov:data/bnl"}
+: ${DATAROOT:="${HOME}/data/${SITE}"}
+: ${SERVERROOT:="solar-db.bnl.gov:data/${SITE}"}
 function die() {
     echo "$@" 1>2
     echo "usage: $ME StartDate NumDays" 1>2
@@ -79,8 +80,13 @@ GHIDIRS=`{
 	echo $DAY|cut -c1-6
     done
     } | sort |uniq`
+for GHIDIR in $GHIDIRS
+do
+    GHI_new="${HOME}/data/${SITE}/GHI_new/${GHIDIR}/GHI_25.npz"
+    ( cd $DATAROOT/GHI
+      rsync -au ${SERVERROOT}/GHI/${GHIDIR} . )
+done
 
-GHI_new="${HOME}/data/bnl/GHI_new/201812/GHI_25.npz"
 # Need to run GHI_processing if .npz file doesn't exist yet.
 
 [ -r "$GHI_new" ] || PROCESSES="GHI_preprocessing $PROCESSES"
