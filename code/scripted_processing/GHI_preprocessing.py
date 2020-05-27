@@ -8,6 +8,7 @@ import configparser
 from ast import literal_eval as le
 import pytz
 import subprocess
+import sys
 
 #Sensors = np.arange(1,26);
 #DirPath = '/home/amcmahon/data/originalGHI/'
