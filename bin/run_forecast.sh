@@ -42,67 +42,62 @@ HOME=${HOME}
 q
 EOF
 fi
+#
+# We are going one day at a time so this becomes the outer loop
 T=`date -d $DAY1 +'%s'`
-DAYSTR="days=['$DAY1'"
+DATE=`date -d "@$T" +%Y%m%d`
+DAYSTR="days=['$DATE']"
 IDAY=1
 while [ $IDAY -lt $NDAYS ]
 do
-    IDAY=`expr $IDAY + 1`
-    T=`expr $T + 86400`
-    DATE=`date -d "@$T" +%Y%m%d`
-    DAYSTR=${DAYSTR}",'$DATE'"
-done
-DAYSTR=${DAYSTR}"]"
-# now replace 'days=' line in $MYDIR/config.conf
-ed $MYDIR/config.conf <<EOF
+    # now replace 'days=' line in $MYDIR/config.conf
+    ed $MYDIR/config.conf <<EOF
 /^days=/c
 $DAYSTR
 .
 ,w
 q
 EOF
-
-# put the rest in a python script reading from config.conf,
-# better yet config.yaml
-
-# copy input raw image data
-#
-declare -a DAYS
-eval `echo $DAYSTR |sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/days=/DAYS=/'`
-( cd $DATAROOT/images
-  # need to grep all_cams from config.conf and mkdir if necessary
-  eval `grep "^all_cams=" $CONF|sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/all_cams=/CAMS=/'`
-for CAM in "${CAMS[@]}"; do ( mkdir -p $CAM; cd $CAM; for DAY in "${DAYS[@]}"; do rsync -au ${SERVERROOT}/images/$CAM/$DAY .; done ; ) ; done
-)
-GHIDIRS=`{
-    for DAY in "${DAYS[@]}"
-    do
-	echo $DAY|cut -c1-6
-    done
-    } | sort |uniq`
-for GHIDIR in $GHIDIRS
-do
+    
+    # put the rest in a python script reading from config.conf,
+    # better yet config.yaml
+    
+    # copy input raw image data
+    #
+    ( cd $DATAROOT/images
+      # need to grep all_cams from config.conf and mkdir if necessary
+      eval `grep "^all_cams=" $CONF|sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/all_cams=/CAMS=/'`
+      for CAM in "${CAMS[@]}"; do ( mkdir -p $CAM; cd $CAM; rsync -au ${SERVERROOT}/images/$CAM/$DATE . ; ) ; done
+    )
+    GHIDIR=`echo $DATE|cut -c1-6`
     GHI_new="${HOME}/data/${SITE}/GHI_new/${GHIDIR}/GHI_25.npz"
-    ( cd $DATAROOT/GHI
-      rsync -au ${SERVERROOT}/GHI/${GHIDIR} . )
+    
+    # Need to run GHI_processing if .npz file doesn't exist yet.
+
+    if [ ! -r "$GHI_new" ]
+    then
+	PROCESSES="GHI_preprocessing $PROCESSES"
+	( cd $DATAROOT/GHI
+	  rsync -au ${SERVERROOT}/GHI/${GHIDIR} . )
+    fi
+    
+    LOGDIR=${DATAROOT}/log/${DATE}
+    mkdir -p $LOGDIR
+    for P in ${PROCESSES}
+    do
+	cd $RELEASE
+	time python3 ./${P}.py ${CONF} > ${LOGDIR}/${P}.log 2>&1
+    done
+    # now copy results back: stitch, feature, forecast, log
+    # might want to use --remove-source-files on rsync to remove successfully copied
+    # files
+    ( cd $DATAROOT
+      OUTDIRS=( stitch feature forecast )
+      for ODIR in "${OUTDIRS[@]}"; do ( cd $ODIR; rsync -au $DATE $SERVERROOT/$ODIR/$DATE; ) ; done
+    )
+    ( cd $DATAROOT/log; rsync -au ${DATE} $SERVERROOT/log/ )
+    IDAY=`expr $IDAY + 1`
+    T=`expr $T + 86400`
+    DATE=`date -d "@$T" +%Y%m%d`
+    DAYSTR="['$DATE']"
 done
-
-# Need to run GHI_processing if .npz file doesn't exist yet.
-
-[ -r "$GHI_new" ] || PROCESSES="GHI_preprocessing $PROCESSES"
-
-LOGDIR=${DATAROOT}/log/${DAY1}_${NDAYS}
-mkdir -p $LOGDIR
-for P in ${PROCESSES}
-do
-    cd $RELEASE
-    time python3 ./${P}.py ${CONF} > ${LOGDIR}/${P}.log 2>&1
-done
-# now copy results back: stitch, feature, forecast, log
-# might want to use --remove-source-files on rsync to remove successfully copied
-# files
-( cd $DATAROOT
-  OUTDIRS=( stitch feature forecast )
-  for ODIR in "${OUTDIRS[@]}"; do ( cd $ODIR; for DAY in "${DAYS[@]}"; do rsync -au $DAY $SERVERROOT/$ODIR/$DAY; done; ) ; done
-)
-( cd $DATAROOT/log; rsync -au ${DAY1}_${NDAYS} $SERVERROOT/log/ )
