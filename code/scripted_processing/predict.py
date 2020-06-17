@@ -196,7 +196,7 @@ for day in days:
             #DataY[sensor] = np.hstack(DataY[sensor])                #stack time series for persistence horizontally
             #timestamp[sensor] = np.hstack(timestamp[sensor])        #stack timestamps horizontally
 
-            cld_frac = DataX[sensor][:,14]
+            cld_frac = DataX[sensor][:,-4]
             testY_hat = (1-cld_frac)*max_ghi          #150 is a guestimate, needs to be changed to something smarter
 
 

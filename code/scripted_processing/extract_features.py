@@ -51,6 +51,7 @@ def extract_MP(args):
         max_ghis = list(loc.get_clearsky(times)['ghi'])
         max_dnis = list(loc.get_clearsky(times)['dni'])
         max_dhis = list(loc.get_clearsky(times)['dhi'])
+        cf_total = np.sum(img.cm) / np.sum(rgb[:,0]>0)
 
         out_args = []
         for ilt, lead_time in enumerate(lead_steps):
@@ -71,7 +72,7 @@ def extract_MP(args):
                 tmp = np.asarray([lead_minutes[ilt],timestamp,img.height,img.sz,
                         cf1, R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,
                         cf2, R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2,
-                        max_ghis[ilt],max_dnis[ilt],max_dhis[ilt]],dtype=np.float64) 
+                        cf_total, max_ghis[ilt],max_dnis[ilt],max_dhis[ilt]],dtype=np.float64) 
                 tmp=np.reshape(tmp,(1,-1));
 
                 #print("\t\tTimestamp: %li \tiGHI: %i \tlead_time: %i \tlead_minutes: %i, win: %s" % (timestamp, iGHI, lead_time, lead_minutes[ilt], str([max(0,iy-WIN_SIZE), min(ny-1,iy+WIN_SIZE), max(0,ix-WIN_SIZE), min(nx-1,ix+WIN_SIZE)])))
@@ -130,7 +131,7 @@ if __name__ == "__main__":
 
     #print(GHI_loc, len(GHI_loc))
 
-    header_txt = "lead_minutes,timestamp,img.height,img.sz,cf1,R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,cf2,R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2,max_ghi,max_dni,max_dhi"
+    header_txt = "lead_minutes,timestamp,img.height,img.sz,cf1,R_mean1,G_mean1,B_mean1,R_min1,G_min1,B_min1,R_max1,G_max1,B_max1,RBR1,cf2,R_mean2,G_mean2,B_mean2,R_min2,G_min2,B_min2,R_max2,G_max2,B_max2,RBR2,cf_total,max_ghi,max_dni,max_dhi"
 
     for day in days:
         if not os.path.isdir(outpath+day[:8]):
