@@ -13,7 +13,7 @@ MYDIR=`( cd $MYDIR; pwd )`
 : ${CONF:="$MYDIR/config.conf"}
 : ${SITE:="bnl"}
 : ${RELEASE:="${HOME}/release/code/scripted_processing"}
-: ${PROCESSES:="preprocess generate_stitch extract_features predict"}
+: ${PROCESSES:="preprocess generate_stitch extract_features GHI_preprocessing predict"}
 : ${DATAROOT:="${HOME}/data/${SITE}"}
 : ${SERVERROOT:="solar-db.bnl.gov:data/${SITE}"}
 function die() {
@@ -48,7 +48,7 @@ T=`date -d $DAY1 +'%s'`
 DATE=`date -d "@$T" +%Y%m%d`
 DAYSTR="days=['$DATE']"
 IDAY=1
-while [ $IDAY -lt $NDAYS ]
+while [ $IDAY -le $NDAYS ]
 do
     # now replace 'days=' line in $MYDIR/config.conf
     ed $MYDIR/config.conf <<EOF
@@ -69,14 +69,13 @@ EOF
       eval `grep "^all_cams=" $CONF|sed 's/\[/\(/'|sed 's/\]/\)/'|sed 's/,/ /g'|sed 's/all_cams=/CAMS=/'`
       for CAM in "${CAMS[@]}"; do ( mkdir -p $CAM; cd $CAM; rsync -au ${SERVERROOT}/images/$CAM/$DATE . ; ) ; done
     )
-    GHIDIR=`echo $DATE|cut -c1-6`
+    GHIDIR=`date -d $DATE +%Y-%m`
     GHI_new="${HOME}/data/${SITE}/GHI_new/${GHIDIR}/GHI_25.npz"
     
     # Need to run GHI_processing if .npz file doesn't exist yet.
 
     if [ ! -r "$GHI_new" ]
     then
-	PROCESSES="GHI_preprocessing $PROCESSES"
 	( cd $DATAROOT/GHI
 	  rsync -au ${SERVERROOT}/GHI/${GHIDIR} . )
     fi
@@ -93,11 +92,11 @@ EOF
     # files
     ( cd $DATAROOT
       OUTDIRS=( stitch feature forecast )
-      for ODIR in "${OUTDIRS[@]}"; do ( cd $ODIR; rsync -au $DATE $SERVERROOT/$ODIR/$DATE; ) ; done
+      for ODIR in "${OUTDIRS[@]}"; do ( cd $ODIR; rsync -au $DATE/ $SERVERROOT/$ODIR/$DATE/; ) ; done
     )
     ( cd $DATAROOT/log; rsync -au ${DATE} $SERVERROOT/log/ )
     IDAY=`expr $IDAY + 1`
     T=`expr $T + 86400`
     DATE=`date -d "@$T" +%Y%m%d`
-    DAYSTR="['$DATE']"
+    DAYSTR="days=['$DATE']"
 done

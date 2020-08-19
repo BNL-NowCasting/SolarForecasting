@@ -7,7 +7,7 @@ This installs all the prerequisites on a blank `nowcast` user home-dir. It shoul
 	wget https://raw.githubusercontent.com/BNL-NowCasting/SolarForecasting/master/bin/setup.sh
 	bash -x setup.sh 2>&1 |tee setup.log
 
-It downloads and installs a `anaconda3` if it doesn't exist and creates a py35 virtual environment which is then made the default in `~nowcast/.bashrc`
+It downloads and installs a `anaconda3` if it doesn't exist and creates a `py35` virtual environment which is then made the default in `~nowcast/.bashrc`
 
 It then downloads a specific release version of the SolarForecasting distribution (e.g. `1.1`) and creates a symlink `release` that points to that version.
 
@@ -24,8 +24,8 @@ Finally, the empty data directory tree is created [Actually, it does that first]
 # run_forecast.sh #
 This `bash` script automates the distributed running of the `~/release/code/scripted_processing` steps for historical/archived data.
 It takes two command-line arguments:
-* DAY1 - the first date to be processed
-* NDAYS - the number of consecutive days to process.
+* `DAY1` - the first date to be processed
+* `NDAYS` - the number of consecutive days to process.
 It defaults to the `config.conf` file in the current working directory, but can be overwritten with the `CONF` environment variable. The `SITE` defaults to `bnl`.
 It actually modifies the config.conf file in place to insert the list of dates to process in the `days=` configuration line.
 
