@@ -39,5 +39,7 @@
 1. Install netcdf4
     - conda install netcdf4
 
+## Algorithm flowchart
+
 <img src="Solar_Forecasting_Functional_Flow_7-15-2020.png">
 
